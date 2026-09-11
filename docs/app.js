@@ -39,11 +39,7 @@ var POSITIONS = [
   { code: 'RA', label: 'RA · Rechtsaußen' }
 ];
 
-var SEED_NAMES = [
-  'Cedric Ax', 'Claudio König', 'David Ax', 'Davin Nink', 'Hannes',
-  'Jan Albrecht', 'Luc', 'Lukas Kohl', 'Matthias Ax', 'Max',
-  'Mini', 'Nico', 'Pascal', 'Schmori', 'Thimo', 'Timo Baby'
-];
+var SEED_PLAYER_COUNT = 16;
 
 /* ══════════════════════ helpers ══════════════════════ */
 
@@ -82,9 +78,11 @@ function addStats(target, src) {
 }
 
 function seedRoster() {
-  return SEED_NAMES.map(function (name, i) {
-    return { id: 'p' + (i + 1), nr: null, name: name, pos: '', active: true };
-  });
+  var roster = [];
+  for (var i = 0; i < SEED_PLAYER_COUNT; i++) {
+    roster.push({ id: 'p' + (i + 1), nr: null, name: '', pos: '', active: true });
+  }
+  return roster;
 }
 
 function defaultState() {
