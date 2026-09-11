@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/industry-b0623f59-5afe-473e-a384-8c09b73ac22b/styles.css">
+<script src="_ds/industry-b0623f59-5afe-473e-a384-8c09b73ac22b/_ds_bundle.js"></script>
+<style>body{margin:0}button{font:inherit}</style>
+</helmet>
+<div style="min-height:100vh;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)">
+
+<header style="background:var(--color-accent-900);color:var(--color-bg);padding:12px 22px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+  <div style="margin-right:auto;display:flex;flex-direction:column;gap:1px">
+    <div style="font:400 10px/1.2 var(--font-body);letter-spacing:.2em;text-transform:uppercase;opacity:.55">Spielanalyse</div>
+    <div style="font:600 23px/1.05 var(--font-heading);letter-spacing:-0.01em">{{ matchTitle }}</div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px">
+    <div style="display:flex;align-items:baseline;gap:8px;font:600 34px/1 var(--font-heading);letter-spacing:-0.02em;font-variant-numeric:tabular-nums">
+      <span>{{ scoreUs }}</span><span style="opacity:.4;font-size:20px">:</span><span style="opacity:.8">{{ scoreThem }}</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px">
+      <button onClick="{{ themPlus }}" style="width:34px;height:24px;border:1px solid rgba(242,242,243,.3);background:transparent;color:inherit;cursor:pointer;font:600 13px/1 var(--font-heading)">+</button>
+      <button onClick="{{ themMinus }}" style="width:34px;height:24px;border:1px solid rgba(242,242,243,.3);background:transparent;color:inherit;cursor:pointer;font:600 13px/1 var(--font-heading)">–</button>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:9px;padding-left:18px;border-left:1px solid rgba(242,242,243,.22)">
+    <div style="display:flex;flex-direction:column;gap:0">
+      <div style="font:600 22px/1.05 var(--font-heading);font-variant-numeric:tabular-nums;min-width:64px">{{ clock }}</div>
+      <div style="font:400 9px/1 var(--font-body);letter-spacing:.16em;text-transform:uppercase;opacity:.55">{{ halfLabel }}</div>
+    </div>
+    <button onClick="{{ toggleClock }}" style="min-height:44px;border:1px solid rgba(242,242,243,.3);background:transparent;color:inherit;cursor:pointer;padding:0 14px;font:600 12px/1.2 var(--font-heading);letter-spacing:.07em;text-transform:uppercase">{{ clockLabel }}</button>
+    <button onClick="{{ nextHalf }}" style="min-height:44px;border:1px solid rgba(242,242,243,.3);background:transparent;color:inherit;cursor:pointer;padding:0 14px;font:600 12px/1.2 var(--font-heading);letter-spacing:.07em;text-transform:uppercase">Halbzeit</button>
+  </div>
+
+  <div style="display:flex;border:1px solid rgba(242,242,243,.3)">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+      <button onClick="{{ t.onClick }}" style="min-height:44px;border:0;cursor:pointer;padding:0 18px;font:600 13px/1.2 var(--font-heading);letter-spacing:.07em;text-transform:uppercase;background:{{ t.bg }};color:{{ t.fg }}">{{ t.label }}</button>
+    </sc-for>
+  </div>
+</header>
+
+<sc-if value="{{ isLive }}" hint-placeholder-val="{{ true }}">
+<div style="display:grid;grid-template-columns:minmax(210px,250px) minmax(0,1fr);gap:26px;padding:26px 24px 40px;align-items:start">
+
+  <section style="display:flex;flex-direction:column;gap:7px;min-width:0">
+    <h6 style="margin:0 0 2px">Kader antippen</h6>
+    <sc-for list="{{ players }}" as="p" hint-placeholder-count="12">
+      <button onClick="{{ p.onClick }}" style="display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;min-height:48px;text-align:left;cursor:pointer;padding:7px 10px;border:1px solid {{ p.border }};background:{{ p.bg }};color:{{ p.fg }};border-radius:0">
+        <span style="font:600 17px/1 var(--font-heading);font-variant-numeric:tabular-nums;opacity:.8">{{ p.nr }}</span>
+        <span style="display:flex;flex-direction:column;gap:0;min-width:0">
+          <span style="font:500 17px/1.2 var(--font-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.name }}</span>
+          <span style="font:400 9px/1.3 var(--font-body);letter-spacing:.14em;text-transform:uppercase;opacity:.55">{{ p.pos }}</span>
+        </span>
+        <span style="font:600 12px/1 var(--font-heading);font-variant-numeric:tabular-nums;opacity:.6">{{ p.tally }}</span>
+      </button>
+    </sc-for>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:20px;min-width:0">
+    <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+      <div style="font:600 26px/1 var(--font-heading)">{{ selLabel }}</div>
+      <div style="font:400 13px/1.3 var(--font-body);color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ selHint }}</div>
+      <button onClick="{{ undo }}" class="btn btn-secondary" style="margin-left:auto;min-height:44px">Letzte Aktion zurück</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px">
+
+      <div class="blueprint" style="padding:16px 15px 15px;display:flex;flex-direction:column;gap:13px;min-width:0">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div style="display:flex;align-items:baseline;gap:9px;flex-wrap:wrap">
+          <h4 style="margin:0">Angriff</h4>
+          <span style="font:400 10px/1.3 var(--font-body);letter-spacing:.13em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 50%, transparent)">Abschluss · Ballverlust</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:7px">
+          <sc-for list="{{ attGood }}" as="a" hint-placeholder-count="4">
+            <button onClick="{{ a.onClick }}" style="display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:5px;cursor:pointer;padding:10px 11px;border:1px solid var(--color-accent);background:var(--color-accent);color:var(--color-bg);border-radius:0;min-height:64px;text-align:left">
+              <span style="font:600 15px/1.1 var(--font-heading)">{{ a.label }}</span>
+              <span style="font:600 11px/1 var(--font-heading);font-variant-numeric:tabular-nums;opacity:.75">{{ a.count }}</span>
+            </button>
+          </sc-for>
+          <sc-for list="{{ attBad }}" as="a" hint-placeholder-count="6">
+            <button onClick="{{ a.onClick }}" style="display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:5px;cursor:pointer;padding:10px 11px;border:1px solid var(--color-divider);background:transparent;color:var(--color-text);border-radius:0;min-height:64px;text-align:left">
+              <span style="font:600 15px/1.1 var(--font-heading)">{{ a.label }}</span>
+              <span style="font:600 11px/1 var(--font-heading);font-variant-numeric:tabular-nums;opacity:.5">{{ a.count }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+
+      <div class="blueprint" style="padding:16px 15px 15px;display:flex;flex-direction:column;gap:13px;min-width:0">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div style="display:flex;align-items:baseline;gap:9px;flex-wrap:wrap">
+          <h4 style="margin:0">Abwehr</h4>
+          <span style="font:400 10px/1.3 var(--font-body);letter-spacing:.13em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 50%, transparent)">Gewinn · Fehler · Strafe</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:7px">
+          <sc-for list="{{ defGood }}" as="a" hint-placeholder-count="2">
+            <button onClick="{{ a.onClick }}" style="display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:5px;cursor:pointer;padding:10px 11px;border:1px solid var(--color-accent);background:var(--color-accent);color:var(--color-bg);border-radius:0;min-height:64px;text-align:left">
+              <span style="font:600 15px/1.1 var(--font-heading)">{{ a.label }}</span>
+              <span style="font:600 11px/1 var(--font-heading);font-variant-numeric:tabular-nums;opacity:.75">{{ a.count }}</span>
+            </button>
+          </sc-for>
+          <sc-for list="{{ defBad }}" as="a" hint-placeholder-count="7">
+            <button onClick="{{ a.onClick }}" style="display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:5px;cursor:pointer;padding:10px 11px;border:1px solid var(--color-divider);background:transparent;color:var(--color-text);border-radius:0;min-height:64px;text-align:left">
+              <span style="font:600 15px/1.1 var(--font-heading)">{{ a.label }}</span>
+              <span style="font:600 11px/1 var(--font-heading);font-variant-numeric:tabular-nums;opacity:.5">{{ a.count }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <sc-if value="{{ showLog }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <h6 style="margin:0">Protokoll · {{ eventCount }} Aktionen</h6>
+      <sc-for list="{{ log }}" as="e" hint-placeholder-count="6">
+        <div style="display:grid;grid-template-columns:52px 66px minmax(0,1fr) auto;align-items:center;gap:12px;padding:6px 2px;border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);font-size:13px">
+          <span style="font:600 13px/1 var(--font-heading);font-variant-numeric:tabular-nums;opacity:.5">{{ e.time }}</span>
+          <span style="font:400 9px/1.3 var(--font-body);letter-spacing:.13em;text-transform:uppercase;color:var(--color-accent-700)">{{ e.side }}</span>
+          <span style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><strong style="font-weight:500">{{ e.player }}</strong> · {{ e.label }}</span>
+          <button onClick="{{ e.onRemove }}" aria-label="Aktion löschen" title="Aktion löschen" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:0;background:transparent;cursor:pointer;color:color-mix(in srgb, var(--color-text) 45%, transparent);padding:0" style-hover="color:var(--color-accent-700)">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6l-.8 13.1a2 2 0 0 1-2 1.9H7.8a2 2 0 0 1-2-1.9L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
+          </button>
+        </div>
+      </sc-for>
+    </div>
+    </sc-if>
+  </section>
+</div>
+</sc-if>
+
+<sc-if value="{{ isEval }}" hint-placeholder-val="{{ false }}">
+<div style="padding:26px 24px 48px;display:flex;flex-direction:column;gap:32px">
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:22px">
+    <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="5">
+      <div class="blueprint" style="padding:15px 15px 13px;display:flex;flex-direction:column;gap:5px">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div style="font:400 10px/1.3 var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700)">{{ k.label }}</div>
+        <div style="font:600 38px/1 var(--font-heading);letter-spacing:-0.02em;font-variant-numeric:tabular-nums">{{ k.value }}</div>
+        <div style="font:400 12px/1.4 var(--font-body);color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ k.sub }}</div>
+      </div>
+    </sc-for>
+  </div>
+
+  <section style="display:flex;flex-direction:column;gap:11px;min-width:0">
+    <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+      <h3 style="margin:0">Spieler im Vergleich</h3>
+      <div style="display:flex;margin-left:auto;border:1px solid var(--color-divider)">
+        <sc-for list="{{ sorters }}" as="s" hint-placeholder-count="4">
+          <button onClick="{{ s.onClick }}" style="min-height:40px;border:0;border-left:1px solid var(--color-divider);cursor:pointer;padding:0 14px;font:600 12px/1.2 var(--font-heading);letter-spacing:.06em;text-transform:uppercase;background:{{ s.bg }};color:{{ s.fg }}">{{ s.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+    <table class="table" style="min-width:900px">
+      <thead>
+        <tr>
+          <th style="border-bottom:0"></th>
+          <th colspan="5" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Angriff</th>
+          <th colspan="4" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Abwehr</th>
+          <th style="border-bottom:0"></th>
+        </tr>
+        <tr>
+          <th>Spieler</th>
+          <th>Tore</th><th>Würfe</th><th>Quote</th><th>Assists</th><th>Fehler</th>
+          <th>Ballgew.</th><th>Blocks</th><th>Strafen</th><th>Fehler</th>
+          <th>Bilanz</th>
+        </tr>
+      </thead>
+      <tbody>
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="12">
+          <tr>
+            <td style="white-space:nowrap"><span style="font:600 14px/1 var(--font-heading);opacity:.45;font-variant-numeric:tabular-nums;margin-right:8px">{{ r.nr }}</span>{{ r.name }}</td>
+            <td style="font-variant-numeric:tabular-nums;font-weight:500">{{ r.tore }}</td>
+            <td style="font-variant-numeric:tabular-nums;opacity:.7">{{ r.wuerfe }}</td>
+            <td style="min-width:112px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font:600 13px/1 var(--font-heading);font-variant-numeric:tabular-nums;min-width:34px">{{ r.quote }}</span>
+                <span style="flex:1;height:6px;background:color-mix(in srgb, var(--color-text) 10%, transparent);position:relative;min-width:32px">
+                  <span style="position:absolute;left:0;top:0;bottom:0;background:var(--color-accent);width:{{ r.quoteW }}"></span>
+                </span>
+              </div>
+            </td>
+            <td style="font-variant-numeric:tabular-nums;opacity:.7">{{ r.assist }}</td>
+            <td style="font-variant-numeric:tabular-nums">{{ r.angFehler }}</td>
+            <td style="font-variant-numeric:tabular-nums;font-weight:500">{{ r.ballgewinn }}</td>
+            <td style="font-variant-numeric:tabular-nums;opacity:.7">{{ r.block }}</td>
+            <td style="font-variant-numeric:tabular-nums;opacity:.7">{{ r.strafen }}</td>
+            <td style="font-variant-numeric:tabular-nums">{{ r.abwFehler }}</td>
+            <td><span class="tag {{ r.balanceTag }}" style="font-variant-numeric:tabular-nums;font-weight:500">{{ r.balance }}</span></td>
+          </tr>
+        </sc-for>
+      </tbody>
+    </table>
+    </div>
+    <div style="font:400 12px/1.5 var(--font-body);color:color-mix(in srgb, var(--color-text) 50%, transparent);max-width:660px">Bilanz = Tore, Assists, erzwungene 7m, Ballgewinne und Blocks minus Angriffsfehler, Abwehrfehler und Strafen.</div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <h3 style="margin:0">Auffälligkeiten</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:22px">
+      <sc-for list="{{ highlights }}" as="h" hint-placeholder-count="4">
+        <div class="blueprint" style="padding:15px;display:flex;flex-direction:column;gap:6px;background:{{ h.bg }}">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div style="font:400 10px/1.3 var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:{{ h.kicker }}">{{ h.tag }}</div>
+          <div style="font:600 21px/1.1 var(--font-heading);color:{{ h.fg }}">{{ h.name }}</div>
+          <div style="font:400 13px/1.45 var(--font-body);color:{{ h.body }}">{{ h.text }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:12px;min-width:0">
+    <h3 style="margin:0">Angriff gegen Abwehr</h3>
+    <div class="blueprint" style="padding:20px 18px 16px;min-width:0">
+      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+      <div style="display:flex;flex-direction:column;gap:9px;min-width:0">
+        <div style="display:grid;grid-template-columns:minmax(120px,168px) minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:center;font:400 10px/1.3 var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 50%, transparent)">
+          <span>Spieler</span><span>Angriff · Bilanz</span><span>Abwehr · Bilanz</span>
+        </div>
+        <sc-for list="{{ split }}" as="s" hint-placeholder-count="12">
+          <div style="display:grid;grid-template-columns:minmax(120px,168px) minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:center;min-width:0">
+            <span style="font:500 13px/1.3 var(--font-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="font:600 13px/1 var(--font-heading);opacity:.45;margin-right:7px">{{ s.nr }}</span>{{ s.name }}</span>
+            <span style="display:flex;align-items:center;gap:8px;min-width:0">
+              <span style="flex:1;height:14px;background:color-mix(in srgb, var(--color-text) 7%, transparent);position:relative;min-width:24px">
+                <span style="position:absolute;top:0;bottom:0;left:{{ s.attLeft }};width:{{ s.attW }};background:{{ s.attColor }}"></span>
+                <span style="position:absolute;top:0;bottom:0;left:50%;width:1px;background:color-mix(in srgb, var(--color-text) 30%, transparent)"></span>
+              </span>
+              <span style="font:600 12px/1 var(--font-heading);font-variant-numeric:tabular-nums;min-width:26px;text-align:right;opacity:.75">{{ s.att }}</span>
+            </span>
+            <span style="display:flex;align-items:center;gap:8px;min-width:0">
+              <span style="flex:1;height:14px;background:color-mix(in srgb, var(--color-text) 7%, transparent);position:relative;min-width:24px">
+                <span style="position:absolute;top:0;bottom:0;left:{{ s.defLeft }};width:{{ s.defW }};background:{{ s.defColor }}"></span>
+                <span style="position:absolute;top:0;bottom:0;left:50%;width:1px;background:color-mix(in srgb, var(--color-text) 30%, transparent)"></span>
+              </span>
+              <span style="font:600 12px/1 var(--font-heading);font-variant-numeric:tabular-nums;min-width:26px;text-align:right;opacity:.75">{{ s.def }}</span>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSeason }}" hint-placeholder-val="{{ false }}">
+<div style="padding:26px 24px 48px;display:flex;flex-direction:column;gap:32px">
+
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <h3 style="margin:0">Spiele der Saison</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px">
+      <sc-for list="{{ games }}" as="g" hint-placeholder-count="5">
+        <div class="blueprint" style="padding:14px;display:flex;flex-direction:column;gap:5px;background:{{ g.bg }}">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div style="display:flex;justify-content:space-between;font:400 10px/1.3 var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:{{ g.kicker }}"><span>{{ g.date }}</span><span>{{ g.ha }}</span></div>
+          <div style="font:500 14px/1.3 var(--font-body);color:{{ g.fg }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ g.opp }}</div>
+          <div style="display:flex;align-items:baseline;gap:9px">
+            <span style="font:600 28px/1 var(--font-heading);font-variant-numeric:tabular-nums;color:{{ g.fg }}">{{ g.result }}</span>
+            <span class="tag {{ g.tag }}">{{ g.outcome }}</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:11px;min-width:0">
+    <h3 style="margin:0">Saisonwerte pro Spieler</h3>
+    <div style="overflow-x:auto">
+    <table class="table" style="min-width:820px">
+      <thead>
+        <tr>
+          <th>Spieler</th><th>Spiele</th><th>Tore</th><th>Ø Tore</th><th>Quote</th>
+          <th>Assists</th><th>Ang.-Fehler</th><th>Ballgew.</th><th>Abw.-Fehler</th><th>Ø Bilanz</th>
+        </tr>
+      </thead>
+      <tbody>
+        <sc-for list="{{ seasonRows }}" as="r" hint-placeholder-count="12">
+          <tr>
+            <td style="white-space:nowrap"><span style="font:600 14px/1 var(--font-heading);opacity:.45;font-variant-numeric:tabular-nums;margin-right:8px">{{ r.nr }}</span>{{ r.name }}</td>
+            <td style="font-variant-numeric:tabular-nums;opacity:.7">{{ r.spiele }}</td>
+            <td style="font-variant-numeric:tabular-nums;font-weight:500">{{ r.tore }}</td>
+            <td style="font-variant-numeric:tabular-nums;opacity:.7">{{ r.avgTore }}</td>
+            <td style="min-width:112px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font:600 13px/1 var(--font-heading);font-variant-numeric:tabular-nums;min-width:34px">{{ r.quote }}</span>
+                <span style="flex:1;height:6px;background:color-mix(in srgb, var(--color-text) 10%, transparent);position:relative;min-width:32px">
+                  <span style="position:absolute;left:0;top:0;bottom:0;background:var(--color-accent);width:{{ r.quoteW }}"></span>
+                </span>
+              </div>
+            </td>
+            <td style="font-variant-numeric:tabular-nums;opacity:.7">{{ r.assist }}</td>
+            <td style="font-variant-numeric:tabular-nums">{{ r.angFehler }}</td>
+            <td style="font-variant-numeric:tabular-nums;font-weight:500">{{ r.ballgewinn }}</td>
+            <td style="font-variant-numeric:tabular-nums">{{ r.abwFehler }}</td>
+            <td><span class="tag {{ r.balanceTag }}" style="font-variant-numeric:tabular-nums;font-weight:500">{{ r.avgBalance }}</span></td>
+          </tr>
+        </sc-for>
+      </tbody>
+    </table>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1194,&quot;height&quot;:880},&quot;teamName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;HSG Talwald&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Spiel&quot;},&quot;opponent&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;TSV Bergheim&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Spiel&quot;},&quot;halbzeitMinuten&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:30,&quot;min&quot;:15,&quot;max&quot;:35,&quot;unit&quot;:&quot;min&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Spiel&quot;},&quot;demoDaten&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Daten&quot;},&quot;zeigeProtokoll&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Daten&quot;}}">
+class Component extends DCLogic {
+  ATT = [
+    { code: 'tor', label: 'Tor', pos: 1, shot: 1, goal: 1 },
+    { code: 'tempo', label: 'Tempo-Tor', pos: 1, shot: 1, goal: 1 },
+    { code: 'assist', label: 'Assist', pos: 1 },
+    { code: 'erzw7', label: '7m erzwungen', pos: 1 },
+    { code: 'fehlwurf', label: 'Fehlwurf', shot: 1, neg: 1 },
+    { code: 'fehlpass', label: 'Fehlpass', neg: 1 },
+    { code: 'stuermer', label: 'Stürmerfoul', neg: 1 },
+    { code: 'schritt', label: 'Schrittfehler', neg: 1 }
+  ];
+  DEF = [
+    { code: 'ballgewinn', label: 'Ballgewinn', pos: 1 },
+    { code: 'block', label: 'Block', pos: 1 },
+    { code: 'luecke', label: 'Abwehr-Lücke', neg: 1 },
+    { code: 'stellung', label: 'Stellungsfehler', neg: 1 },
+    { code: 'gegentor', label: 'Gegentor zugel.', neg: 1 },
+    { code: 'verurs7', label: '7m verursacht', neg: 1 },
+    { code: 'zeit2', label: 'Zeitstrafe 2′', neg: 1, strafe: 1 }
+  ];
+  players = [
+    { nr: 1, name: 'Lukas Brenner', pos: 'TW' },
+    { nr: 2, name: 'Jonas Reiff', pos: 'LA' },
+    { nr: 3, name: 'Nils Kerber', pos: 'RL' },
+    { nr: 4, name: 'Marvin Osei', pos: 'RM' },
+    { nr: 5, name: 'Elias Wendt', pos: 'RR' },
+    { nr: 6, name: 'Tobias Frank', pos: 'KM' },
+    { nr: 7, name: 'David Lang', pos: 'RA' },
+    { nr: 8, name: 'Sebastian Groth', pos: 'RL' },
+    { nr: 9, name: 'Kilian Moser', pos: 'KM' },
+    { nr: 10, name: 'Fabian Reusch', pos: 'RM' },
+    { nr: 11, name: 'Ole Timm', pos: 'LA' },
+    { nr: 12, name: 'Timo Halder', pos: 'TW' }
+  ];
+  archive = this.buildArchive();
+  state = Object.assign(
+    { view: 'live', sel: 4, running: false, sort: 'balance', nextId: 1000 },
+    this.buildSeed()
+  );
+
+  rng(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a += 0x6d2b79f5;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  action(code) {
+    return this.ATT.concat(this.DEF).filter((a) => a.code === code)[0];
+  }
+
+  buildSeed() {
+    if (this.props && this.props.demoDaten === false) {
+      return { events: [], them: 0, sec: 0, half: 1 };
+    }
+    const r = this.rng(20260911);
+    const field = this.players.filter((p) => p.pos !== 'TW');
+    const weights = [
+      ['tor', 10], ['tempo', 3], ['assist', 6], ['erzw7', 2],
+      ['fehlwurf', 9], ['fehlpass', 6],
+      ['stuermer', 2], ['schritt', 2],
+      ['ballgewinn', 5], ['block', 4], ['luecke', 4], ['stellung', 3],
+      ['gegentor', 5], ['verurs7', 2], ['zeit2', 3]
+    ];
+    const bag = [];
+    weights.forEach((w) => { for (let i = 0; i < w[1]; i++) bag.push(w[0]); });
+    for (let i = bag.length - 1; i > 0; i--) {
+      const j = Math.floor(r() * (i + 1));
+      const tmp = bag[i]; bag[i] = bag[j]; bag[j] = tmp;
+    }
+    let t = 35;
+    let them = 13;
+    const events = [];
+    bag.forEach((code, i) => {
+      t += 12 + Math.floor(r() * 48);
+      const p = field[Math.floor(r() * field.length)];
+      events.push({ id: 'e' + i, nr: p.nr, code: code, sec: t });
+      if (code === 'gegentor') them++;
+    });
+    return { events: events, them: them, sec: t + 40, half: t > 1800 ? 2 : 1 };
+  }
+
+  buildArchive() {
+    const meta = [
+      { date: '22.08.', opp: 'TV Hochdorf', ha: 'Auswärts' },
+      { date: '29.08.', opp: 'SG Ammertal', ha: 'Heim' },
+      { date: '05.09.', opp: 'HSG Neckartal', ha: 'Auswärts' },
+      { date: '12.09.', opp: 'TSV Oberbach', ha: 'Heim' }
+    ];
+    return meta.map((m, gi) => {
+      const r = this.rng(1700 + gi * 37);
+      const stats = {};
+      let us = 0;
+      this.players.forEach((p) => {
+        if (p.pos === 'TW') {
+          stats[p.nr] = { tore: 0, wuerfe: 0, assist: 0, angFehler: 0, ballgewinn: Math.floor(r() * 2), block: 0, abwFehler: Math.floor(r() * 3), strafen: 0, erzw7: 0 };
+          return;
+        }
+        const wuerfe = 2 + Math.floor(r() * 8);
+        const tore = Math.round(wuerfe * (0.34 + r() * 0.42));
+        stats[p.nr] = {
+          tore: tore, wuerfe: wuerfe, assist: Math.floor(r() * 4),
+          angFehler: Math.floor(r() * 4), ballgewinn: Math.floor(r() * 4),
+          block: Math.floor(r() * 3), abwFehler: Math.floor(r() * 4),
+          strafen: r() < 0.25 ? 1 : 0, erzw7: Math.floor(r() * 2)
+        };
+        us += tore;
+      });
+      return { id: 'g' + gi, date: m.date, opp: m.opp, ha: m.ha, us: us, them: 19 + Math.floor(r() * 9), stats: stats };
+    });
+  }
+
+  blank() {
+    return { tore: 0, wuerfe: 0, assist: 0, angFehler: 0, ballgewinn: 0, block: 0, abwFehler: 0, strafen: 0, erzw7: 0 };
+  }
+
+  currentStats() {
+    const map = {};
+    this.players.forEach((p) => { map[p.nr] = this.blank(); });
+    this.state.events.forEach((e) => {
+      const a = this.action(e.code);
+      const s = map[e.nr];
+      if (!a || !s) return;
+      const isAtt = this.ATT.indexOf(a) > -1;
+      if (a.goal) s.tore++;
+      if (a.shot) s.wuerfe++;
+      if (a.code === 'assist') s.assist++;
+      if (a.code === 'erzw7') s.erzw7++;
+      if (a.strafe) s.strafen++;
+      else if (a.neg) { if (isAtt) s.angFehler++; else s.abwFehler++; }
+      if (a.code === 'ballgewinn') s.ballgewinn++;
+      if (a.code === 'block') s.block++;
+    });
+    return map;
+  }
+
+  attScore(s) { return s.tore + s.assist + s.erzw7 - s.angFehler; }
+  defScore(s) { return s.ballgewinn + s.block - s.abwFehler - s.strafen; }
+  balance(s) { return this.attScore(s) + this.defScore(s); }
+
+  fmt(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  quote(s) { return s.wuerfe ? Math.round((s.tore / s.wuerfe) * 100) : 0; }
+  signed(n) { return (n > 0 ? '+' : '') + n; }
+
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      if (this.state.running) this.setState((st) => ({ sec: st.sec + 1 }));
+    }, 1000);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+
+  record(code) {
+    const sel = this.state.sel;
+    if (!sel) return;
+    this.setState((st) => ({
+      nextId: st.nextId + 1,
+      events: st.events.concat([{ id: 'u' + st.nextId, nr: sel, code: code, sec: st.sec }]),
+      them: code === 'gegentor' ? st.them + 1 : st.them
+    }));
+  }
+
+  renderVals() {
+    const st = this.state;
+    const stats = this.currentStats();
+    const teamName = this.props.teamName || 'HSG Talwald';
+    const opponent = this.props.opponent || 'TSV Bergheim';
+    const halfMin = this.props.halbzeitMinuten || 30;
+    const scoreUs = this.players.reduce((n, p) => n + stats[p.nr].tore, 0);
+
+    const tabs = [
+      { key: 'live', label: 'Erfassen' },
+      { key: 'eval', label: 'Auswertung' },
+      { key: 'season', label: 'Saison' }
+    ].map((t) => ({
+      label: t.label,
+      bg: st.view === t.key ? 'var(--color-bg)' : 'transparent',
+      fg: st.view === t.key ? 'var(--color-accent-900)' : 'inherit',
+      onClick: () => this.setState({ view: t.key })
+    }));
+
+    const playerRows = this.players.map((p) => {
+      const on = st.sel === p.nr;
+      const s = stats[p.nr];
+      return {
+        nr: p.nr, name: p.name, pos: p.pos,
+        tally: s.tore + '/' + this.signed(this.balance(s)),
+        bg: on ? 'var(--color-accent)' : 'transparent',
+        fg: on ? 'var(--color-bg)' : 'var(--color-text)',
+        border: on ? 'var(--color-accent)' : 'var(--color-divider)',
+        onClick: () => this.setState({ sel: p.nr })
+      };
+    });
+
+    const selPlayer = this.players.filter((p) => p.nr === st.sel)[0];
+    const btn = (a) => ({
+      label: a.label,
+      count: selPlayer ? this.countFor(st.sel, a.code) : '',
+      onClick: () => this.record(a.code)
+    });
+
+    const log = st.events.filter((e) => !!this.action(e.code)).slice().reverse().slice(0, 8).map((e) => {
+      const a = this.action(e.code);
+      const p = this.players.filter((x) => x.nr === e.nr)[0];
+      return {
+        time: this.fmt(e.sec),
+        side: this.ATT.indexOf(a) > -1 ? 'Angriff' : 'Abwehr',
+        player: p ? p.nr + ' ' + p.name : '—',
+        label: a ? a.label : e.code,
+        onRemove: () => this.setState((s2) => ({ events: s2.events.filter((x) => x.id !== e.id) }))
+      };
+    });
+
+    const teamShots = this.players.reduce((n, p) => n + stats[p.nr].wuerfe, 0);
+    const teamAng = this.players.reduce((n, p) => n + stats[p.nr].angFehler, 0);
+    const teamAbw = this.players.reduce((n, p) => n + stats[p.nr].abwFehler, 0);
+    const teamBall = this.players.reduce((n, p) => n + stats[p.nr].ballgewinn, 0);
+    const teamBlock = this.players.reduce((n, p) => n + stats[p.nr].block, 0);
+    const teamStraf = this.players.reduce((n, p) => n + stats[p.nr].strafen, 0);
+
+    const kpis = [
+      { label: 'Wurfquote', value: (teamShots ? Math.round((scoreUs / teamShots) * 100) : 0) + '%', sub: scoreUs + ' Tore aus ' + teamShots + ' Würfen' },
+      { label: 'Angriffsfehler', value: String(teamAng), sub: 'Ballverluste ohne Abschluss' },
+      { label: 'Abwehrfehler', value: String(teamAbw), sub: 'Lücken, Stellung, Gegentore' },
+      { label: 'Ballgewinne + Blocks', value: String(teamBall + teamBlock), sub: teamBall + ' Gewinne · ' + teamBlock + ' Blocks' },
+      { label: 'Strafen', value: String(teamStraf), sub: 'Zeitstrafen und Karten' }
+    ];
+
+    const sortFns = {
+      tore: (a, b) => b.s.tore - a.s.tore,
+      quote: (a, b) => this.quote(b.s) - this.quote(a.s),
+      fehler: (a, b) => (b.s.angFehler + b.s.abwFehler) - (a.s.angFehler + a.s.abwFehler),
+      balance: (a, b) => this.balance(b.s) - this.balance(a.s)
+    };
+    const sorters = [
+      { key: 'tore', label: 'Tore' },
+      { key: 'quote', label: 'Quote' },
+      { key: 'fehler', label: 'Fehler' },
+      { key: 'balance', label: 'Bilanz' }
+    ].map((s) => ({
+      label: s.label,
+      bg: st.sort === s.key ? 'var(--color-accent)' : 'transparent',
+      fg: st.sort === s.key ? 'var(--color-bg)' : 'var(--color-text)',
+      onClick: () => this.setState({ sort: s.key })
+    }));
+
+    const wrapped = this.players.map((p) => ({ p: p, s: stats[p.nr] }));
+    const sorted = wrapped.slice().sort(sortFns[st.sort]);
+    const rows = sorted.map((w) => {
+      const b = this.balance(w.s);
+      return {
+        nr: w.p.nr, name: w.p.name,
+        tore: w.s.tore, wuerfe: w.s.wuerfe,
+        quote: this.quote(w.s) + '%', quoteW: this.quote(w.s) + '%',
+        assist: w.s.assist, angFehler: w.s.angFehler,
+        ballgewinn: w.s.ballgewinn, block: w.s.block,
+        strafen: w.s.strafen, abwFehler: w.s.abwFehler,
+        balance: this.signed(b),
+        balanceTag: b > 0 ? 'tag-accent' : 'tag-neutral'
+      };
+    });
+
+    const maxSplit = Math.max(4, ...wrapped.map((w) => Math.max(Math.abs(this.attScore(w.s)), Math.abs(this.defScore(w.s)))));
+    const bar = (v) => {
+      const w = (Math.abs(v) / maxSplit) * 50;
+      return { left: (v >= 0 ? 50 : 50 - w) + '%', w: w + '%', color: v >= 0 ? 'var(--color-accent)' : 'var(--color-neutral-500)' };
+    };
+    const split = sorted.map((w) => {
+      const a = bar(this.attScore(w.s));
+      const d = bar(this.defScore(w.s));
+      return {
+        nr: w.p.nr, name: w.p.name,
+        att: this.signed(this.attScore(w.s)), def: this.signed(this.defScore(w.s)),
+        attLeft: a.left, attW: a.w, attColor: a.color,
+        defLeft: d.left, defW: d.w, defColor: d.color
+      };
+    });
+
+    const shooters = wrapped.filter((w) => w.s.wuerfe >= 4);
+    const topScorer = wrapped.slice().sort((a, b) => b.s.tore - a.s.tore)[0];
+    const bestQuote = (shooters.length ? shooters : wrapped).slice().sort((a, b) => this.quote(b.s) - this.quote(a.s))[0];
+    const mostErr = wrapped.slice().sort((a, b) => (b.s.angFehler + b.s.abwFehler) - (a.s.angFehler + a.s.abwFehler))[0];
+    const bestDef = wrapped.slice().sort((a, b) => this.defScore(b.s) - this.defScore(a.s))[0];
+    const hi = (tag, w, text, dark) => ({
+      tag: tag, name: w.p.nr + ' ' + w.p.name, text: text,
+      bg: dark ? 'var(--color-accent-900)' : 'transparent',
+      fg: dark ? 'var(--color-bg)' : 'var(--color-text)',
+      kicker: dark ? 'var(--color-accent-300)' : 'var(--color-accent-700)',
+      body: dark ? 'rgba(242,242,243,.85)' : 'color-mix(in srgb, var(--color-text) 62%, transparent)'
+    });
+    const highlights = [
+      hi('Torgefährlichster', topScorer, topScorer.s.tore + ' Tore aus ' + topScorer.s.wuerfe + ' Würfen · Quote ' + this.quote(topScorer.s) + '%', true),
+      hi('Beste Wurfquote', bestQuote, this.quote(bestQuote.s) + '% bei ' + bestQuote.s.wuerfe + ' Würfen'),
+      hi('Stärkste Abwehr', bestDef, bestDef.s.ballgewinn + ' Ballgewinne, ' + bestDef.s.block + ' Blocks, ' + bestDef.s.abwFehler + ' Fehler'),
+      hi('Meiste Fehler', mostErr, mostErr.s.angFehler + ' im Angriff, ' + mostErr.s.abwFehler + ' in der Abwehr')
+    ];
+
+    const games = this.archive.slice().reverse().map((g) => {
+      const win = g.us > g.them;
+      const draw = g.us === g.them;
+      return {
+        date: g.date, opp: g.opp, ha: g.ha, result: g.us + ':' + g.them,
+        outcome: win ? 'Sieg' : draw ? 'Remis' : 'Nied.',
+        tag: win ? 'tag-accent' : 'tag-neutral',
+        bg: 'transparent', fg: 'var(--color-text)', kicker: 'var(--color-accent-700)'
+      };
+    });
+    games.unshift({
+      date: 'heute', opp: opponent, ha: 'Heim', result: scoreUs + ':' + st.them,
+      outcome: 'Laufend', tag: 'tag-outline',
+      bg: 'var(--color-accent-900)', fg: 'var(--color-bg)', kicker: 'var(--color-accent-300)'
+    });
+
+    const seasonRows = this.players.map((p) => {
+      const t = this.blank();
+      const add = (s) => { Object.keys(t).forEach((k) => { t[k] += s[k] || 0; }); };
+      this.archive.forEach((g) => add(g.stats[p.nr]));
+      add(stats[p.nr]);
+      const spiele = this.archive.length + 1;
+      const b = this.balance(t);
+      return {
+        nr: p.nr, name: p.name, spiele: spiele, tore: t.tore,
+        avgTore: (t.tore / spiele).toFixed(1),
+        quote: this.quote(t) + '%', quoteW: this.quote(t) + '%',
+        assist: t.assist, angFehler: t.angFehler,
+        ballgewinn: t.ballgewinn, abwFehler: t.abwFehler,
+        avgBalance: this.signed(Math.round((b / spiele) * 10) / 10),
+        balanceTag: b > 0 ? 'tag-accent' : 'tag-neutral',
+        _sort: t.tore
+      };
+    }).sort((a, b) => b._sort - a._sort);
+
+    return {
+      matchTitle: teamName + ' – ' + opponent,
+      scoreUs: scoreUs, scoreThem: st.them,
+      clock: this.fmt(st.sec), clockLabel: st.running ? 'Stop' : 'Start',
+      halfLabel: st.half + '. Halbzeit',
+      toggleClock: () => this.setState((s) => ({ running: !s.running })),
+      nextHalf: () => this.setState((s) => ({ half: s.half === 1 ? 2 : 1, sec: s.half === 1 ? halfMin * 60 : 0 })),
+      themPlus: () => this.setState((s) => ({ them: s.them + 1 })),
+      themMinus: () => this.setState((s) => ({ them: Math.max(0, s.them - 1) })),
+      tabs: tabs,
+      isLive: st.view === 'live', isEval: st.view === 'eval', isSeason: st.view === 'season',
+      players: playerRows,
+      selLabel: selPlayer ? selPlayer.nr + ' ' + selPlayer.name : 'Kein Spieler gewählt',
+      selHint: selPlayer ? selPlayer.pos + ' · Aktion antippen, um sie zu buchen' : 'Links einen Spieler antippen',
+      attGood: this.ATT.filter((a) => a.pos).map(btn),
+      attBad: this.ATT.filter((a) => a.neg).map(btn),
+      defGood: this.DEF.filter((a) => a.pos).map(btn),
+      defBad: this.DEF.filter((a) => a.neg).map(btn),
+      undo: () => this.setState((s) => ({ events: s.events.slice(0, -1) })),
+      log: log, eventCount: st.events.length,
+      showLog: this.props.zeigeProtokoll !== false,
+      kpis: kpis, sorters: sorters, rows: rows, split: split, highlights: highlights,
+      games: games, seasonRows: seasonRows
+    };
+  }
+
+  countFor(nr, code) {
+    const n = this.state.events.filter((e) => e.nr === nr && e.code === code).length;
+    return n ? String(n) : '–';
+  }
+}
+</script>
+</body>
+</html>
