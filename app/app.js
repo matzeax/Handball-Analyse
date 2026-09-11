@@ -820,3 +820,9 @@ document.addEventListener('change', function (e) {
 });
 
 render();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () { /* offline caching unavailable */ });
+  });
+}
