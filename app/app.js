@@ -1,0 +1,822 @@
+'use strict';
+
+/* ══════════════════════ constants ══════════════════════ */
+
+var STORAGE_KEY = 'handball-tracker-v1';
+
+var ATT = [
+  { code: 'tor', label: 'Tor', pos: 1, shot: 1, goal: 1 },
+  { code: 'tempo', label: 'Tempo-Tor', pos: 1, shot: 1, goal: 1 },
+  { code: 'assist', label: 'Assist', pos: 1 },
+  { code: 'erzw7', label: '7m erzwungen', pos: 1 },
+  { code: 'fehlwurf', label: 'Fehlwurf', shot: 1, neg: 1 },
+  { code: 'fehlpass', label: 'Fehlpass', neg: 1 },
+  { code: 'stuermer', label: 'Stürmerfoul', neg: 1 },
+  { code: 'schritt', label: 'Schrittfehler', neg: 1 }
+];
+var DEF = [
+  { code: 'ballgewinn', label: 'Ballgewinn', pos: 1 },
+  { code: 'block', label: 'Block', pos: 1 },
+  { code: 'luecke', label: 'Abwehr-Lücke', neg: 1 },
+  { code: 'stellung', label: 'Stellungsfehler', neg: 1 },
+  { code: 'gegentor', label: 'Gegentor zugel.', neg: 1 },
+  { code: 'verurs7', label: '7m verursacht', neg: 1 },
+  { code: 'zeit2', label: 'Zeitstrafe 2′', neg: 1, strafe: 1 }
+];
+var ATT_CODES = {};
+ATT.forEach(function (a) { ATT_CODES[a.code] = true; });
+var ACTION_BY_CODE = {};
+ATT.concat(DEF).forEach(function (a) { ACTION_BY_CODE[a.code] = a; });
+
+var POSITIONS = [
+  { code: '', label: '–' },
+  { code: 'TW', label: 'TW · Torwart' },
+  { code: 'LA', label: 'LA · Linksaußen' },
+  { code: 'RL', label: 'RL · Rückraum links' },
+  { code: 'RM', label: 'RM · Rückraum Mitte' },
+  { code: 'RR', label: 'RR · Rückraum rechts' },
+  { code: 'KM', label: 'KM · Kreisläufer' },
+  { code: 'RA', label: 'RA · Rechtsaußen' }
+];
+
+var SEED_NAMES = [
+  'Cedric Ax', 'Claudio König', 'David Ax', 'Davin Nink', 'Hannes',
+  'Jan Albrecht', 'Luc', 'Lukas Kohl', 'Matthias Ax', 'Max',
+  'Mini', 'Nico', 'Pascal', 'Schmori', 'Thimo', 'Timo Baby'
+];
+
+/* ══════════════════════ helpers ══════════════════════ */
+
+function esc(str) {
+  return String(str == null ? '' : str).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function uid(prefix) { return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function fmtClock(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  var m = Math.floor(sec / 60), s = sec % 60;
+  return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+}
+function signed(n) { return (n > 0 ? '+' : '') + n; }
+function todayISO() {
+  var d = new Date();
+  var mo = String(d.getMonth() + 1).padStart(2, '0');
+  var da = String(d.getDate()).padStart(2, '0');
+  return d.getFullYear() + '-' + mo + '-' + da;
+}
+function fmtDate(iso) {
+  if (!iso) return '';
+  var p = iso.split('-');
+  if (p.length !== 3) return iso;
+  return p[2] + '.' + p[1] + '.';
+}
+
+/* ══════════════════════ state & persistence ══════════════════════ */
+
+function blankStats() {
+  return { tore: 0, wuerfe: 0, assist: 0, angFehler: 0, ballgewinn: 0, block: 0, abwFehler: 0, strafen: 0, erzw7: 0 };
+}
+function addStats(target, src) {
+  Object.keys(target).forEach(function (k) { target[k] += (src && src[k]) || 0; });
+}
+
+function seedRoster() {
+  return SEED_NAMES.map(function (name, i) {
+    return { id: 'p' + (i + 1), nr: null, name: name, pos: '', active: true };
+  });
+}
+
+function defaultState() {
+  return {
+    teamName: 'Meine Mannschaft',
+    roster: seedRoster(),
+    currentGame: null,
+    archive: [],
+    view: 'live',
+    sel: null,
+    sort: 'balance'
+  };
+}
+
+var state = load();
+var newGameDialog = null; // { opponent, homeAway, date, halfMinutes, rosterIds, error }
+var endGameDialog = false;
+
+function load() {
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultState();
+    var parsed = JSON.parse(raw);
+    var def = defaultState();
+    parsed.teamName = parsed.teamName || def.teamName;
+    parsed.roster = Array.isArray(parsed.roster) && parsed.roster.length ? parsed.roster : def.roster;
+    parsed.view = parsed.view || 'live';
+    parsed.sort = parsed.sort || 'balance';
+    if (parsed.currentGame && parsed.currentGame.running && parsed.currentGame.lastTickAt) {
+      var elapsed = Math.round((Date.now() - parsed.currentGame.lastTickAt) / 1000);
+      if (elapsed > 0) parsed.currentGame.sec += elapsed;
+      parsed.currentGame.lastTickAt = Date.now();
+    }
+    return parsed;
+  } catch (e) {
+    return defaultState();
+  }
+}
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ }
+}
+
+/* ══════════════════════ game model ══════════════════════ */
+
+function createGame(fields) {
+  return {
+    id: uid('g'),
+    opponent: fields.opponent,
+    homeAway: fields.homeAway,
+    date: fields.date,
+    halfMinutes: fields.halfMinutes,
+    rosterIds: fields.rosterIds.slice(),
+    events: [],
+    them: 0,
+    sec: 0,
+    half: 1,
+    running: false,
+    lastTickAt: null
+  };
+}
+
+function computeStats(game) {
+  var map = {};
+  var ids = {};
+  (game.rosterIds || []).forEach(function (id) { ids[id] = true; });
+  game.events.forEach(function (e) { ids[e.playerId] = true; });
+  Object.keys(ids).forEach(function (id) { map[id] = blankStats(); });
+  game.events.forEach(function (e) {
+    var a = ACTION_BY_CODE[e.code];
+    var s = map[e.playerId];
+    if (!a || !s) return;
+    var isAtt = !!ATT_CODES[a.code];
+    if (a.goal) s.tore++;
+    if (a.shot) s.wuerfe++;
+    if (a.code === 'assist') s.assist++;
+    if (a.code === 'erzw7') s.erzw7++;
+    if (a.strafe) s.strafen++;
+    else if (a.neg) { if (isAtt) s.angFehler++; else s.abwFehler++; }
+    if (a.code === 'ballgewinn') s.ballgewinn++;
+    if (a.code === 'block') s.block++;
+  });
+  return map;
+}
+
+function attScore(s) { return s.tore + s.assist + s.erzw7 - s.angFehler; }
+function defScore(s) { return s.ballgewinn + s.block - s.abwFehler - s.strafen; }
+function balance(s) { return attScore(s) + defScore(s); }
+function quote(s) { return s.wuerfe ? Math.round((s.tore / s.wuerfe) * 100) : 0; }
+
+function playerById(id) {
+  for (var i = 0; i < state.roster.length; i++) if (state.roster[i].id === id) return state.roster[i];
+  return null;
+}
+function sortedRoster(list) {
+  return list.slice().sort(function (a, b) {
+    var an = a.nr == null ? Infinity : a.nr, bn = b.nr == null ? Infinity : b.nr;
+    if (an !== bn) return an - bn;
+    return 0;
+  });
+}
+
+/* ══════════════════════ actions ══════════════════════ */
+
+function switchView(v) { state.view = v; state.sel = null; save(); render(); }
+
+function selectPlayer(id) { state.sel = state.sel === id ? null : id; save(); render(); }
+
+function recordEvent(code) {
+  var g = state.currentGame;
+  if (!g || !state.sel) return;
+  g.events.push({ id: uid('e'), playerId: state.sel, code: code, sec: g.sec });
+  if (code === 'gegentor') g.them++;
+  save(); render();
+}
+function undoLast() {
+  var g = state.currentGame;
+  if (!g || !g.events.length) return;
+  g.events.pop();
+  save(); render();
+}
+function removeEvent(id) {
+  var g = state.currentGame;
+  if (!g) return;
+  g.events = g.events.filter(function (e) { return e.id !== id; });
+  save(); render();
+}
+function toggleClock() {
+  var g = state.currentGame;
+  if (!g) return;
+  g.running = !g.running;
+  g.lastTickAt = Date.now();
+  save(); render();
+}
+function nextHalf() {
+  var g = state.currentGame;
+  if (!g) return;
+  if (g.half === 1) { g.half = 2; g.sec = 0; }
+  else { g.half = 1; g.sec = 0; }
+  save(); render();
+}
+function themDelta(n) {
+  var g = state.currentGame;
+  if (!g) return;
+  g.them = Math.max(0, g.them + n);
+  save(); render();
+}
+
+function openNewGameDialog() {
+  var activeIds = state.roster.filter(function (p) { return p.active; }).map(function (p) { return p.id; });
+  newGameDialog = { opponent: '', homeAway: 'Heim', date: todayISO(), halfMinutes: 30, rosterIds: activeIds, error: '' };
+  render();
+}
+function closeNewGameDialog() { newGameDialog = null; render(); }
+function submitNewGame() {
+  if (!newGameDialog) return;
+  var opp = (newGameDialog.opponent || '').trim();
+  if (!opp) { newGameDialog.error = 'Bitte einen Gegner eintragen.'; render(); return; }
+  if (!newGameDialog.rosterIds.length) { newGameDialog.error = 'Bitte mindestens einen Spieler auswählen.'; render(); return; }
+  if (state.currentGame) state.archive.push(state.currentGame);
+  state.currentGame = createGame({
+    opponent: opp,
+    homeAway: newGameDialog.homeAway,
+    date: newGameDialog.date || todayISO(),
+    halfMinutes: Number(newGameDialog.halfMinutes) || 30,
+    rosterIds: newGameDialog.rosterIds
+  });
+  state.view = 'live';
+  state.sel = null;
+  newGameDialog = null;
+  save(); render();
+}
+
+function openEndGameDialog() { if (state.currentGame) { endGameDialog = true; render(); } }
+function closeEndGameDialog() { endGameDialog = false; render(); }
+function confirmEndGame() {
+  if (state.currentGame) {
+    state.currentGame.running = false;
+    state.archive.push(state.currentGame);
+    state.currentGame = null;
+  }
+  endGameDialog = false;
+  state.view = 'season';
+  state.sel = null;
+  save(); render();
+}
+
+function addRosterPlayer() {
+  state.roster.push({ id: uid('p'), nr: null, name: '', pos: '', active: true });
+  save(); render();
+}
+function deleteRosterPlayer(id) {
+  state.roster = state.roster.filter(function (p) { return p.id !== id; });
+  save(); render();
+}
+
+/* ══════════════════════ ticking clock ══════════════════════ */
+
+setInterval(function () {
+  var g = state.currentGame;
+  if (g && g.running) {
+    g.sec++;
+    g.lastTickAt = Date.now();
+    save();
+    var el = document.getElementById('clockTime');
+    if (el) el.textContent = fmtClock(g.sec);
+  }
+}, 1000);
+
+/* ══════════════════════ rendering ══════════════════════ */
+
+function trashIcon() {
+  return '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6l-.8 13.1a2 2 0 0 1-2 1.9H7.8a2 2 0 0 1-2-1.9L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>';
+}
+function corners() {
+  return '<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>';
+}
+
+function renderHeader() {
+  var g = state.currentGame;
+  var title = esc(state.teamName) + (g ? ' – ' + esc(g.opponent) : ' – Kein aktives Spiel');
+  var tabs = [
+    { key: 'live', label: 'Erfassen' },
+    { key: 'eval', label: 'Auswertung' },
+    { key: 'season', label: 'Saison' },
+    { key: 'roster', label: 'Kader' }
+  ].map(function (t) {
+    return '<button class="tab-btn' + (state.view === t.key ? ' active' : '') + '" data-act="switch-tab" data-view="' + t.key + '">' + t.label + '</button>';
+  }).join('');
+
+  var middle;
+  if (g) {
+    var stats = computeStats(g);
+    var scoreUs = 0;
+    Object.keys(stats).forEach(function (id) { scoreUs += stats[id].tore; });
+    middle =
+      '<div class="score-block">' +
+        '<div class="score-display"><span>' + scoreUs + '</span><span class="score-sep">:</span><span class="score-them">' + g.them + '</span></div>' +
+        '<div class="score-btns">' +
+          '<button class="score-btn" data-act="them-plus">+</button>' +
+          '<button class="score-btn" data-act="them-minus">–</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="clock-block">' +
+        '<div><div class="clock-time" id="clockTime">' + fmtClock(g.sec) + '</div><div class="clock-half">' + g.half + '. Halbzeit</div></div>' +
+        '<button class="header-btn" data-act="toggle-clock">' + (g.running ? 'Stop' : 'Start') + '</button>' +
+        '<button class="header-btn" data-act="next-half">Halbzeit</button>' +
+        '<button class="header-btn warn" data-act="open-end-game">Spiel beenden</button>' +
+      '</div>';
+  } else {
+    middle = '<button class="header-btn" data-act="open-new-game" style="background:var(--color-accent);border-color:var(--color-accent)">+ Neues Spiel</button>';
+  }
+
+  return (
+    '<header class="app-header">' +
+      '<div class="app-header-title"><div class="app-header-kicker">Spielanalyse</div><div class="app-header-match">' + title + '</div></div>' +
+      middle +
+      '<div class="tabs">' + tabs + '</div>' +
+    '</header>'
+  );
+}
+
+function renderEmptyState(text, showCta) {
+  return (
+    '<div class="empty-state">' +
+      '<p>' + text + '</p>' +
+      (showCta ? '<button class="btn btn-primary" data-act="open-new-game">+ Neues Spiel starten</button>' : '') +
+    '</div>'
+  );
+}
+
+function renderLive() {
+  var g = state.currentGame;
+  if (!g) {
+    return '<div class="view">' + renderEmptyState('Es läuft aktuell kein Spiel. Starte ein neues Spiel, um Aktionen zu erfassen.', true) + '</div>';
+  }
+  var roster = sortedRoster(state.roster.filter(function (p) { return g.rosterIds.indexOf(p.id) > -1; }));
+  var stats = computeStats(g);
+
+  var rosterHtml = roster.map(function (p) {
+    var s = stats[p.id] || blankStats();
+    var on = state.sel === p.id;
+    return (
+      '<button class="roster-item' + (on ? ' active' : '') + '" data-act="select-player" data-id="' + p.id + '">' +
+        '<span class="roster-nr">' + (p.nr != null ? p.nr : '–') + '</span>' +
+        '<span class="roster-name-col"><span class="roster-name">' + esc(p.name || '(ohne Namen)') + '</span><span class="roster-pos">' + esc(p.pos || '–') + '</span></span>' +
+        '<span class="roster-tally">' + s.tore + '/' + signed(balance(s)) + '</span>' +
+      '</button>'
+    );
+  }).join('');
+
+  var selPlayer = state.sel ? playerById(state.sel) : null;
+  var selStats = state.sel ? (stats[state.sel] || blankStats()) : null;
+
+  function countFor(code) {
+    if (!selStats) return '';
+    var n = g.events.filter(function (e) { return e.playerId === state.sel && e.code === code; }).length;
+    return n ? String(n) : '–';
+  }
+  function actionBtn(a, cls) {
+    var disabled = state.sel ? '' : ' disabled';
+    return (
+      '<button class="action-btn ' + cls + '" data-act="record" data-code="' + a.code + '"' + disabled + '>' +
+        '<span class="action-label">' + esc(a.label) + '</span>' +
+        '<span class="action-count">' + countFor(a.code) + '</span>' +
+      '</button>'
+    );
+  }
+
+  var attGood = ATT.filter(function (a) { return a.pos; }).map(function (a) { return actionBtn(a, 'good'); }).join('');
+  var attBad = ATT.filter(function (a) { return a.neg; }).map(function (a) { return actionBtn(a, 'bad'); }).join('');
+  var defGood = DEF.filter(function (a) { return a.pos; }).map(function (a) { return actionBtn(a, 'good'); }).join('');
+  var defBad = DEF.filter(function (a) { return a.neg; }).map(function (a) { return actionBtn(a, 'bad'); }).join('');
+
+  var log = g.events.filter(function (e) { return !!ACTION_BY_CODE[e.code]; }).slice().reverse().slice(0, 8).map(function (e) {
+    var a = ACTION_BY_CODE[e.code];
+    var p = playerById(e.playerId);
+    var side = ATT_CODES[a.code] ? 'Angriff' : 'Abwehr';
+    var playerLabel = p ? ((p.nr != null ? p.nr + ' ' : '') + esc(p.name)) : '—';
+    return (
+      '<div class="log-row">' +
+        '<span class="log-time">' + fmtClock(e.sec) + '</span>' +
+        '<span class="log-side">' + side + '</span>' +
+        '<span class="log-text"><strong>' + playerLabel + '</strong> · ' + esc(a.label) + '</span>' +
+        '<button class="log-remove" data-act="remove-log" data-id="' + e.id + '" title="Aktion löschen" aria-label="Aktion löschen">' + trashIcon() + '</button>' +
+      '</div>'
+    );
+  }).join('');
+
+  return (
+    '<div class="live-grid">' +
+      '<section class="roster-panel"><h6>Kader antippen</h6>' + rosterHtml + '</section>' +
+      '<section class="record-panel">' +
+        '<div class="record-head">' +
+          '<div class="record-head-title">' + (selPlayer ? esc((selPlayer.nr != null ? selPlayer.nr + ' ' : '') + selPlayer.name) : 'Kein Spieler gewählt') + '</div>' +
+          '<div class="record-head-hint">' + (selPlayer ? esc(selPlayer.pos || '') + ' · Aktion antippen, um sie zu buchen' : 'Links einen Spieler antippen') + '</div>' +
+          '<button class="btn btn-secondary record-undo" data-act="undo"' + (g.events.length ? '' : ' disabled') + '>Letzte Aktion zurück</button>' +
+        '</div>' +
+        '<div class="action-grids">' +
+          '<div class="blueprint action-block">' + corners() +
+            '<div class="action-head"><h4>Angriff</h4><span class="action-sub">Abschluss · Ballverlust</span></div>' +
+            '<div class="action-buttons">' + attGood + attBad + '</div>' +
+          '</div>' +
+          '<div class="blueprint action-block">' + corners() +
+            '<div class="action-head"><h4>Abwehr</h4><span class="action-sub">Gewinn · Fehler · Strafe</span></div>' +
+            '<div class="action-buttons">' + defGood + defBad + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="log-section"><h6>Protokoll · ' + g.events.length + ' Aktionen</h6>' + log + '</div>' +
+      '</section>' +
+    '</div>'
+  );
+}
+
+function renderEval() {
+  var g = state.currentGame;
+  if (!g) {
+    return '<div class="view">' + renderEmptyState('Es läuft aktuell kein Spiel. Sobald ein Spiel läuft, erscheint hier die Auswertung.', true) + '</div>';
+  }
+  var roster = state.roster.filter(function (p) { return g.rosterIds.indexOf(p.id) > -1; });
+  var stats = computeStats(g);
+  var wrapped = roster.map(function (p) { return { p: p, s: stats[p.id] || blankStats() }; });
+
+  var teamShots = 0, teamAng = 0, teamAbw = 0, teamBall = 0, teamBlock = 0, teamStraf = 0, scoreUs = 0;
+  wrapped.forEach(function (w) {
+    teamShots += w.s.wuerfe; teamAng += w.s.angFehler; teamAbw += w.s.abwFehler;
+    teamBall += w.s.ballgewinn; teamBlock += w.s.block; teamStraf += w.s.strafen; scoreUs += w.s.tore;
+  });
+
+  var kpis = [
+    { label: 'Wurfquote', value: (teamShots ? Math.round((scoreUs / teamShots) * 100) : 0) + '%', sub: scoreUs + ' Tore aus ' + teamShots + ' Würfen' },
+    { label: 'Angriffsfehler', value: String(teamAng), sub: 'Ballverluste ohne Abschluss' },
+    { label: 'Abwehrfehler', value: String(teamAbw), sub: 'Lücken, Stellung, Gegentore' },
+    { label: 'Ballgewinne + Blocks', value: String(teamBall + teamBlock), sub: teamBall + ' Gewinne · ' + teamBlock + ' Blocks' },
+    { label: 'Strafen', value: String(teamStraf), sub: 'Zeitstrafen' }
+  ];
+  var kpiHtml = kpis.map(function (k) {
+    return '<div class="blueprint kpi-card">' + corners() + '<div class="kpi-label">' + k.label + '</div><div class="kpi-value">' + k.value + '</div><div class="kpi-sub">' + k.sub + '</div></div>';
+  }).join('');
+
+  var sortFns = {
+    tore: function (a, b) { return b.s.tore - a.s.tore; },
+    quote: function (a, b) { return quote(b.s) - quote(a.s); },
+    fehler: function (a, b) { return (b.s.angFehler + b.s.abwFehler) - (a.s.angFehler + a.s.abwFehler); },
+    balance: function (a, b) { return balance(b.s) - balance(a.s); }
+  };
+  var sorters = [
+    { key: 'tore', label: 'Tore' }, { key: 'quote', label: 'Quote' },
+    { key: 'fehler', label: 'Fehler' }, { key: 'balance', label: 'Bilanz' }
+  ].map(function (s) {
+    return '<button class="sorter-btn' + (state.sort === s.key ? ' active' : '') + '" data-act="sort" data-key="' + s.key + '">' + s.label + '</button>';
+  }).join('');
+
+  var sorted = wrapped.slice().sort(sortFns[state.sort] || sortFns.balance);
+
+  var rows = sorted.map(function (w) {
+    var b = balance(w.s), q = quote(w.s);
+    return (
+      '<tr>' +
+        '<td style="white-space:nowrap"><span style="font:600 14px/1 var(--font-heading);opacity:.45;font-variant-numeric:tabular-nums;margin-right:8px">' + (w.p.nr != null ? w.p.nr : '–') + '</span>' + esc(w.p.name) + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums;font-weight:500">' + w.s.tore + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + w.s.wuerfe + '</td>' +
+        '<td><div class="quote-cell"><span class="quote-num">' + q + '%</span><span class="quote-track"><span class="quote-fill" style="width:' + q + '%"></span></span></div></td>' +
+        '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + w.s.assist + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums">' + w.s.angFehler + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums;font-weight:500">' + w.s.ballgewinn + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + w.s.block + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + w.s.strafen + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums">' + w.s.abwFehler + '</td>' +
+        '<td><span class="tag ' + (b > 0 ? 'tag-accent' : 'tag-neutral') + '" style="font-variant-numeric:tabular-nums;font-weight:500">' + signed(b) + '</span></td>' +
+      '</tr>'
+    );
+  }).join('');
+
+  var maxSplit = 4;
+  wrapped.forEach(function (w) { maxSplit = Math.max(maxSplit, Math.abs(attScore(w.s)), Math.abs(defScore(w.s))); });
+  function bar(v) {
+    var w = (Math.abs(v) / maxSplit) * 50;
+    return { left: (v >= 0 ? 50 : 50 - w) + '%', w: w + '%', color: v >= 0 ? 'var(--color-accent)' : 'var(--color-neutral-500)' };
+  }
+  var splitRows = sorted.map(function (w) {
+    var a = bar(attScore(w.s)), d = bar(defScore(w.s));
+    return (
+      '<div class="split-row">' +
+        '<span class="split-name"><span class="nr">' + (w.p.nr != null ? w.p.nr : '–') + '</span>' + esc(w.p.name) + '</span>' +
+        '<span class="split-bar"><span class="split-track"><span class="split-fill" style="left:' + a.left + ';width:' + a.w + ';background:' + a.color + '"></span><span class="split-mid"></span></span><span class="split-value">' + signed(attScore(w.s)) + '</span></span>' +
+        '<span class="split-bar"><span class="split-track"><span class="split-fill" style="left:' + d.left + ';width:' + d.w + ';background:' + d.color + '"></span><span class="split-mid"></span></span><span class="split-value">' + signed(defScore(w.s)) + '</span></span>' +
+      '</div>'
+    );
+  }).join('');
+
+  var highlightsHtml = '';
+  if (wrapped.length) {
+    var shooters = wrapped.filter(function (w) { return w.s.wuerfe >= 4; });
+    var topScorer = wrapped.slice().sort(function (a, b) { return b.s.tore - a.s.tore; })[0];
+    var bestQuote = (shooters.length ? shooters : wrapped).slice().sort(function (a, b) { return quote(b.s) - quote(a.s); })[0];
+    var mostErr = wrapped.slice().sort(function (a, b) { return (b.s.angFehler + b.s.abwFehler) - (a.s.angFehler + a.s.abwFehler); })[0];
+    var bestDef = wrapped.slice().sort(function (a, b) { return defScore(b.s) - defScore(a.s); })[0];
+    function hiCard(tag, w, text, dark) {
+      var name = (w.p.nr != null ? w.p.nr + ' ' : '') + esc(w.p.name);
+      return '<div class="blueprint highlight-card' + (dark ? ' dark' : '') + '">' + corners() +
+        '<div class="highlight-tag">' + tag + '</div><div class="highlight-name">' + name + '</div><div class="highlight-text">' + text + '</div></div>';
+    }
+    highlightsHtml =
+      hiCard('Torgefährlichster', topScorer, topScorer.s.tore + ' Tore aus ' + topScorer.s.wuerfe + ' Würfen · Quote ' + quote(topScorer.s) + '%', true) +
+      hiCard('Beste Wurfquote', bestQuote, quote(bestQuote.s) + '% bei ' + bestQuote.s.wuerfe + ' Würfen') +
+      hiCard('Stärkste Abwehr', bestDef, bestDef.s.ballgewinn + ' Ballgewinne, ' + bestDef.s.block + ' Blocks, ' + bestDef.s.abwFehler + ' Fehler') +
+      hiCard('Meiste Fehler', mostErr, mostErr.s.angFehler + ' im Angriff, ' + mostErr.s.abwFehler + ' in der Abwehr');
+  }
+
+  return (
+    '<div class="view">' +
+      '<div class="kpi-grid">' + kpiHtml + '</div>' +
+      '<section class="section">' +
+        '<div class="section-head"><h3>Spieler im Vergleich</h3><div class="sorter-group">' + sorters + '</div></div>' +
+        '<div class="table-wrap"><table class="table" style="min-width:900px"><thead>' +
+          '<tr><th style="border-bottom:0"></th><th colspan="5" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Angriff</th><th colspan="4" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Abwehr</th><th style="border-bottom:0"></th></tr>' +
+          '<tr><th>Spieler</th><th>Tore</th><th>Würfe</th><th>Quote</th><th>Assists</th><th>Fehler</th><th>Ballgew.</th><th>Blocks</th><th>Strafen</th><th>Fehler</th><th>Bilanz</th></tr>' +
+        '</thead><tbody>' + rows + '</tbody></table></div>' +
+        '<div class="table-footnote">Bilanz = Tore, Assists, erzwungene 7m, Ballgewinne und Blocks minus Angriffsfehler, Abwehrfehler und Strafen.</div>' +
+      '</section>' +
+      '<section class="section"><h3>Auffälligkeiten</h3><div class="highlight-grid">' + highlightsHtml + '</div></section>' +
+      '<section class="section"><h3>Angriff gegen Abwehr</h3><div class="blueprint split-card">' + corners() +
+        '<div class="split-list"><div class="split-header"><span>Spieler</span><span>Angriff · Bilanz</span><span>Abwehr · Bilanz</span></div>' + splitRows + '</div>' +
+      '</div></section>' +
+    '</div>'
+  );
+}
+
+function renderSeason() {
+  var g = state.currentGame;
+  var newTile = '<button class="blueprint new-game-card" data-act="open-new-game">' + corners() + '<span class="new-game-plus">+</span><span class="new-game-label">Neues Spiel</span></button>';
+
+  var liveTile = '';
+  if (g) {
+    var scoreUs = 0;
+    var st = computeStats(g);
+    Object.keys(st).forEach(function (id) { scoreUs += st[id].tore; });
+    liveTile = (
+      '<div class="blueprint game-card dark">' + corners() +
+        '<div class="game-card-head"><span>' + fmtDate(g.date) + '</span><span>' + esc(g.homeAway) + '</span></div>' +
+        '<div class="game-card-opp">' + esc(g.opponent) + '</div>' +
+        '<div class="game-card-result"><span class="game-card-score">' + scoreUs + ':' + g.them + '</span><span class="tag tag-outline">Laufend</span></div>' +
+      '</div>'
+    );
+  }
+
+  var archiveTiles = state.archive.slice().reverse().map(function (game) {
+    var stats = computeStats(game);
+    var us = 0;
+    Object.keys(stats).forEach(function (id) { us += stats[id].tore; });
+    var win = us > game.them, draw = us === game.them;
+    return (
+      '<div class="blueprint game-card">' + corners() +
+        '<div class="game-card-head"><span>' + fmtDate(game.date) + '</span><span>' + esc(game.homeAway) + '</span></div>' +
+        '<div class="game-card-opp">' + esc(game.opponent) + '</div>' +
+        '<div class="game-card-result"><span class="game-card-score">' + us + ':' + game.them + '</span><span class="tag ' + (win ? 'tag-accent' : 'tag-neutral') + '">' + (win ? 'Sieg' : draw ? 'Remis' : 'Nied.') + '</span></div>' +
+      '</div>'
+    );
+  }).join('');
+
+  // season aggregation across archive + current game
+  var games = state.archive.concat(g ? [g] : []);
+  var known = {};
+  state.roster.forEach(function (p) { known[p.id] = true; });
+  games.forEach(function (game) { (game.rosterIds || []).forEach(function (id) { known[id] = true; }); });
+
+  var seasonRows = Object.keys(known).map(function (id) {
+    var p = playerById(id);
+    var t = blankStats();
+    var spiele = 0;
+    games.forEach(function (game) {
+      if ((game.rosterIds || []).indexOf(id) > -1) {
+        spiele++;
+        var s = computeStats(game)[id];
+        if (s) addStats(t, s);
+      }
+    });
+    var b = balance(t);
+    var q = quote(t);
+    return {
+      nr: p ? p.nr : null,
+      name: p ? p.name : '(entfernt)',
+      spiele: spiele,
+      tore: t.tore,
+      avgTore: spiele ? (t.tore / spiele).toFixed(1) : '0.0',
+      quote: q,
+      assist: t.assist,
+      angFehler: t.angFehler,
+      ballgewinn: t.ballgewinn,
+      abwFehler: t.abwFehler,
+      avgBalance: spiele ? signed(Math.round((b / spiele) * 10) / 10) : '+0',
+      balanceTag: b > 0 ? 'tag-accent' : 'tag-neutral',
+      _sort: t.tore
+    };
+  }).sort(function (a, b) { return b._sort - a._sort; });
+
+  var seasonRowsHtml = seasonRows.map(function (r) {
+    return (
+      '<tr>' +
+        '<td style="white-space:nowrap"><span style="font:600 14px/1 var(--font-heading);opacity:.45;font-variant-numeric:tabular-nums;margin-right:8px">' + (r.nr != null ? r.nr : '–') + '</span>' + esc(r.name) + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + r.spiele + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums;font-weight:500">' + r.tore + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + r.avgTore + '</td>' +
+        '<td><div class="quote-cell"><span class="quote-num">' + r.quote + '%</span><span class="quote-track"><span class="quote-fill" style="width:' + r.quote + '%"></span></span></div></td>' +
+        '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + r.assist + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums">' + r.angFehler + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums;font-weight:500">' + r.ballgewinn + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums">' + r.abwFehler + '</td>' +
+        '<td><span class="tag ' + r.balanceTag + '" style="font-variant-numeric:tabular-nums;font-weight:500">' + r.avgBalance + '</span></td>' +
+      '</tr>'
+    );
+  }).join('');
+
+  return (
+    '<div class="view">' +
+      '<section class="section"><h3>Spiele der Saison</h3><div class="game-grid">' + newTile + liveTile + archiveTiles + '</div></section>' +
+      '<section class="section"><h3>Saisonwerte pro Spieler</h3><div class="table-wrap"><table class="table" style="min-width:820px"><thead>' +
+        '<tr><th>Spieler</th><th>Spiele</th><th>Tore</th><th>Ø Tore</th><th>Quote</th><th>Assists</th><th>Ang.-Fehler</th><th>Ballgew.</th><th>Abw.-Fehler</th><th>Ø Bilanz</th></tr>' +
+      '</thead><tbody>' + (seasonRowsHtml || '') + '</tbody></table></div></section>' +
+    '</div>'
+  );
+}
+
+function renderRoster() {
+  var rows = state.roster.map(function (p) {
+    var posOptions = POSITIONS.map(function (o) {
+      return '<option value="' + o.code + '"' + (p.pos === o.code ? ' selected' : '') + '>' + o.label + '</option>';
+    }).join('');
+    return (
+      '<tr class="' + (p.active ? '' : 'inactive') + '" data-row="' + p.id + '">' +
+        '<td><input class="input nr-input" type="number" min="0" max="99" placeholder="–" value="' + (p.nr != null ? p.nr : '') + '" data-field="nr" data-id="' + p.id + '"></td>' +
+        '<td><input class="input" type="text" placeholder="Name" value="' + esc(p.name) + '" data-field="name" data-id="' + p.id + '"></td>' +
+        '<td><select class="input pos-select" data-field="pos" data-id="' + p.id + '">' + posOptions + '</select></td>' +
+        '<td style="text-align:center"><label class="check-row" style="padding:0;justify-content:center"><input type="checkbox" data-field="active" data-id="' + p.id + '"' + (p.active ? ' checked' : '') + '></label></td>' +
+        '<td style="text-align:right"><button class="btn btn-icon btn-danger" data-act="delete-player" data-id="' + p.id + '" title="Spieler entfernen" aria-label="Spieler entfernen">' + trashIcon() + '</button></td>' +
+      '</tr>'
+    );
+  }).join('');
+
+  return (
+    '<div class="view">' +
+      '<section class="section">' +
+        '<div class="roster-view-head">' +
+          '<h3 style="margin-right:auto">Kader-Verwaltung</h3>' +
+          '<div class="field"><label>Teamname</label><input class="input" type="text" id="teamNameInput" value="' + esc(state.teamName) + '"></div>' +
+        '</div>' +
+        '<div class="table-wrap"><table class="table roster-table"><thead><tr><th>Nr.</th><th>Name</th><th>Position</th><th style="text-align:center">Aktiv</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '<button class="btn btn-secondary" data-act="add-player">+ Spieler hinzufügen</button>' +
+      '</section>' +
+    '</div>'
+  );
+}
+
+function renderNewGameDialog() {
+  if (!newGameDialog) return '';
+  var d = newGameDialog;
+  var activeRoster = sortedRoster(state.roster.filter(function (p) { return p.active; }));
+  var kaderRows = activeRoster.map(function (p) {
+    var checked = d.rosterIds.indexOf(p.id) > -1;
+    return (
+      '<label class="check-row"><input type="checkbox" data-act="toggle-kader-pick" data-id="' + p.id + '"' + (checked ? ' checked' : '') + '>' +
+      '<span>' + (p.nr != null ? p.nr + ' · ' : '') + esc(p.name || '(ohne Namen)') + '</span></label>'
+    );
+  }).join('');
+
+  return (
+    '<div class="dialog-backdrop" data-act="backdrop-new-game">' +
+      '<div class="dialog">' +
+        '<div class="dialog-title">Neues Spiel</div>' +
+        '<div class="field"><label>Gegner</label><input class="input" type="text" id="ngOpponent" value="' + esc(d.opponent) + '" placeholder="Gegner eintragen"></div>' +
+        '<div class="field"><label>Heim / Auswärts</label><div class="seg">' +
+          '<button type="button" class="seg-opt' + (d.homeAway === 'Heim' ? ' active' : '') + '" data-act="set-homeaway" data-value="Heim">Heim</button>' +
+          '<button type="button" class="seg-opt' + (d.homeAway === 'Auswärts' ? ' active' : '') + '" data-act="set-homeaway" data-value="Auswärts">Auswärts</button>' +
+        '</div></div>' +
+        '<div class="field"><label>Datum</label><input class="input" type="date" id="ngDate" value="' + esc(d.date) + '"></div>' +
+        '<div class="field"><label>Halbzeitlänge (min)</label><input class="input" type="number" min="15" max="35" id="ngHalfMinutes" value="' + esc(d.halfMinutes) + '"></div>' +
+        '<div class="field"><label>Kader für dieses Spiel</label><div class="dialog-kader">' + (kaderRows || '<div style="padding:10px;opacity:.6;font-size:13px">Keine aktiven Spieler im Kader.</div>') + '</div></div>' +
+        (d.error ? '<div class="dialog-error">' + esc(d.error) + '</div>' : '') +
+        '<div class="dialog-actions">' +
+          '<button class="btn btn-secondary" data-act="close-new-game">Abbrechen</button>' +
+          '<button class="btn btn-primary" data-act="submit-new-game">Spiel starten</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderEndGameDialog() {
+  if (!endGameDialog || !state.currentGame) return '';
+  var g = state.currentGame;
+  var stats = computeStats(g);
+  var us = 0;
+  Object.keys(stats).forEach(function (id) { us += stats[id].tore; });
+  return (
+    '<div class="dialog-backdrop" data-act="backdrop-end-game">' +
+      '<div class="dialog">' +
+        '<div class="dialog-title">Spiel beenden?</div>' +
+        '<div class="dialog-body">Der Spielstand gegen ' + esc(g.opponent) + ' (' + us + ':' + g.them + ') wird ins Saison-Archiv übernommen. Das Spiel kann danach nicht mehr weiter erfasst werden.</div>' +
+        '<div class="dialog-actions">' +
+          '<button class="btn btn-secondary" data-act="close-end-game">Abbrechen</button>' +
+          '<button class="btn btn-primary" data-act="confirm-end-game">Spiel beenden</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function render() {
+  var body;
+  if (state.view === 'live') body = renderLive();
+  else if (state.view === 'eval') body = renderEval();
+  else if (state.view === 'season') body = renderSeason();
+  else body = renderRoster();
+
+  document.getElementById('root').innerHTML =
+    '<div class="page">' + renderHeader() + body + '</div>' +
+    renderNewGameDialog() + renderEndGameDialog();
+}
+
+/* ══════════════════════ event delegation ══════════════════════ */
+
+document.addEventListener('click', function (e) {
+  var el = e.target.closest('[data-act]');
+  if (!el) return;
+  var act = el.getAttribute('data-act');
+  switch (act) {
+    case 'switch-tab': switchView(el.getAttribute('data-view')); break;
+    case 'select-player': selectPlayer(el.getAttribute('data-id')); break;
+    case 'record': recordEvent(el.getAttribute('data-code')); break;
+    case 'undo': undoLast(); break;
+    case 'remove-log': removeEvent(el.getAttribute('data-id')); break;
+    case 'toggle-clock': toggleClock(); break;
+    case 'next-half': nextHalf(); break;
+    case 'them-plus': themDelta(1); break;
+    case 'them-minus': themDelta(-1); break;
+    case 'sort': state.sort = el.getAttribute('data-key'); save(); render(); break;
+    case 'open-new-game': openNewGameDialog(); break;
+    case 'close-new-game': closeNewGameDialog(); break;
+    case 'backdrop-new-game': if (e.target === el) closeNewGameDialog(); break;
+    case 'submit-new-game': submitNewGame(); break;
+    case 'open-end-game': openEndGameDialog(); break;
+    case 'close-end-game': closeEndGameDialog(); break;
+    case 'backdrop-end-game': if (e.target === el) closeEndGameDialog(); break;
+    case 'confirm-end-game': confirmEndGame(); break;
+    case 'add-player': addRosterPlayer(); break;
+    case 'delete-player':
+      if (confirm('Diesen Spieler wirklich aus dem Kader entfernen?')) deleteRosterPlayer(el.getAttribute('data-id'));
+      break;
+    case 'set-homeaway':
+      if (newGameDialog) { newGameDialog.homeAway = el.getAttribute('data-value'); render(); }
+      break;
+    case 'toggle-kader-pick':
+      if (newGameDialog) {
+        var id = el.getAttribute('data-id');
+        var idx = newGameDialog.rosterIds.indexOf(id);
+        if (el.checked && idx === -1) newGameDialog.rosterIds.push(id);
+        else if (!el.checked && idx > -1) newGameDialog.rosterIds.splice(idx, 1);
+      }
+      break;
+  }
+});
+
+document.addEventListener('input', function (e) {
+  var t = e.target;
+  if (t.id === 'ngOpponent' && newGameDialog) { newGameDialog.opponent = t.value; return; }
+  if (t.id === 'ngDate' && newGameDialog) { newGameDialog.date = t.value; return; }
+  if (t.id === 'ngHalfMinutes' && newGameDialog) { newGameDialog.halfMinutes = t.value; return; }
+  if (t.id === 'teamNameInput') { state.teamName = t.value; save(); return; }
+  var field = t.getAttribute('data-field');
+  if (!field) return;
+  var id = t.getAttribute('data-id');
+  var p = playerById(id);
+  if (!p) return;
+  if (field === 'nr') p.nr = t.value === '' ? null : Number(t.value);
+  else if (field === 'name') p.name = t.value;
+  save();
+});
+
+document.addEventListener('change', function (e) {
+  var t = e.target;
+  var field = t.getAttribute('data-field');
+  if (!field) return;
+  var id = t.getAttribute('data-id');
+  var p = playerById(id);
+  if (!p) return;
+  if (field === 'pos') p.pos = t.value;
+  else if (field === 'active') {
+    p.active = t.checked;
+    var row = t.closest('tr');
+    if (row) row.classList.toggle('inactive', !p.active);
+  }
+  save();
+});
+
+render();
