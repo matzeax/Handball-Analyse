@@ -71,7 +71,7 @@ function fmtDate(iso) {
 /* ══════════════════════ state & persistence ══════════════════════ */
 
 function blankStats() {
-  return { tore: 0, wuerfe: 0, assist: 0, angFehler: 0, ballgewinn: 0, block: 0, abwFehler: 0, strafen: 0, erzw7: 0 };
+  return { tore: 0, wuerfe: 0, assist: 0, fehlwuerfe: 0, ballverluste: 0, angFehler: 0, ballgewinn: 0, block: 0, abwFehler: 0, strafen: 0, erzw7: 0 };
 }
 function addStats(target, src) {
   Object.keys(target).forEach(function (k) { target[k] += (src && src[k]) || 0; });
@@ -93,7 +93,9 @@ function defaultState() {
     archive: [],
     view: 'live',
     sel: null,
-    sort: 'balance'
+    sort: 'balance',
+    seasonSort: 'tore',
+    seasonDir: 'desc'
   };
 }
 
@@ -111,6 +113,8 @@ function load() {
     parsed.roster = Array.isArray(parsed.roster) && parsed.roster.length ? parsed.roster : def.roster;
     parsed.view = parsed.view || 'live';
     parsed.sort = parsed.sort || 'balance';
+    parsed.seasonSort = parsed.seasonSort || 'tore';
+    parsed.seasonDir = parsed.seasonDir === 'asc' ? 'asc' : 'desc';
     if (parsed.currentGame && parsed.currentGame.running && parsed.currentGame.lastTickAt) {
       var elapsed = Math.round((Date.now() - parsed.currentGame.lastTickAt) / 1000);
       if (elapsed > 0) parsed.currentGame.sec += elapsed;
@@ -160,7 +164,12 @@ function computeStats(game) {
     if (a.code === 'assist') s.assist++;
     if (a.code === 'erzw7') s.erzw7++;
     if (a.strafe) s.strafen++;
-    else if (a.neg) { if (isAtt) s.angFehler++; else s.abwFehler++; }
+    else if (a.neg) {
+      if (isAtt) {
+        s.angFehler++;                                  // Angriffsfehler gesamt
+        if (a.shot) s.fehlwuerfe++; else s.ballverluste++; // Fehlwurf vs. Ballverlust ohne Abschluss
+      } else s.abwFehler++;
+    }
     if (a.code === 'ballgewinn') s.ballgewinn++;
     if (a.code === 'block') s.block++;
   });
@@ -451,15 +460,17 @@ function renderEval() {
   var stats = computeStats(g);
   var wrapped = roster.map(function (p) { return { p: p, s: stats[p.id] || blankStats() }; });
 
-  var teamShots = 0, teamAng = 0, teamAbw = 0, teamBall = 0, teamBlock = 0, teamStraf = 0, scoreUs = 0;
+  var teamShots = 0, teamAng = 0, teamAbw = 0, teamBall = 0, teamBlock = 0, teamStraf = 0, scoreUs = 0, teamFehlwurf = 0, teamVerlust = 0;
   wrapped.forEach(function (w) {
     teamShots += w.s.wuerfe; teamAng += w.s.angFehler; teamAbw += w.s.abwFehler;
     teamBall += w.s.ballgewinn; teamBlock += w.s.block; teamStraf += w.s.strafen; scoreUs += w.s.tore;
+    teamFehlwurf += w.s.fehlwuerfe; teamVerlust += w.s.ballverluste;
   });
 
   var kpis = [
     { label: 'Wurfquote', value: (teamShots ? Math.round((scoreUs / teamShots) * 100) : 0) + '%', sub: scoreUs + ' Tore aus ' + teamShots + ' Würfen' },
-    { label: 'Angriffsfehler', value: String(teamAng), sub: 'Ballverluste ohne Abschluss' },
+    { label: 'Fehlwürfe', value: String(teamFehlwurf), sub: 'Abschlüsse ohne Tor' },
+    { label: 'Angriffsfehler gesamt', value: String(teamAng), sub: teamFehlwurf + ' Fehlwürfe · ' + teamVerlust + ' Ballverluste' },
     { label: 'Abwehrfehler', value: String(teamAbw), sub: 'Lücken, Stellung, Gegentore' },
     { label: 'Ballgewinne + Blocks', value: String(teamBall + teamBlock), sub: teamBall + ' Gewinne · ' + teamBlock + ' Blocks' },
     { label: 'Strafen', value: String(teamStraf), sub: 'Zeitstrafen' }
@@ -492,6 +503,7 @@ function renderEval() {
         '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + w.s.wuerfe + '</td>' +
         '<td><div class="quote-cell"><span class="quote-num">' + q + '%</span><span class="quote-track"><span class="quote-fill" style="width:' + q + '%"></span></span></div></td>' +
         '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + w.s.assist + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums">' + w.s.fehlwuerfe + '</td>' +
         '<td style="font-variant-numeric:tabular-nums">' + w.s.angFehler + '</td>' +
         '<td style="font-variant-numeric:tabular-nums;font-weight:500">' + w.s.ballgewinn + '</td>' +
         '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + w.s.block + '</td>' +
@@ -535,7 +547,7 @@ function renderEval() {
       hiCard('Torgefährlichster', topScorer, topScorer.s.tore + ' Tore aus ' + topScorer.s.wuerfe + ' Würfen · Quote ' + quote(topScorer.s) + '%', true) +
       hiCard('Beste Wurfquote', bestQuote, quote(bestQuote.s) + '% bei ' + bestQuote.s.wuerfe + ' Würfen') +
       hiCard('Stärkste Abwehr', bestDef, bestDef.s.ballgewinn + ' Ballgewinne, ' + bestDef.s.block + ' Blocks, ' + bestDef.s.abwFehler + ' Fehler') +
-      hiCard('Meiste Fehler', mostErr, mostErr.s.angFehler + ' im Angriff, ' + mostErr.s.abwFehler + ' in der Abwehr');
+      hiCard('Meiste Fehler', mostErr, mostErr.s.angFehler + ' im Angriff (davon ' + mostErr.s.fehlwuerfe + ' Fehlwürfe), ' + mostErr.s.abwFehler + ' in der Abwehr');
   }
 
   return (
@@ -544,10 +556,10 @@ function renderEval() {
       '<section class="section">' +
         '<div class="section-head"><h3>Spieler im Vergleich</h3><div class="sorter-group">' + sorters + '</div></div>' +
         '<div class="table-wrap"><table class="table" style="min-width:900px"><thead>' +
-          '<tr><th style="border-bottom:0"></th><th colspan="5" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Angriff</th><th colspan="4" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Abwehr</th><th style="border-bottom:0"></th></tr>' +
-          '<tr><th>Spieler</th><th>Tore</th><th>Würfe</th><th>Quote</th><th>Assists</th><th>Fehler</th><th>Ballgew.</th><th>Blocks</th><th>Strafen</th><th>Fehler</th><th>Bilanz</th></tr>' +
+          '<tr><th style="border-bottom:0"></th><th colspan="6" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Angriff</th><th colspan="4" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Abwehr</th><th style="border-bottom:0"></th></tr>' +
+          '<tr><th>Spieler</th><th>Tore</th><th>Würfe</th><th>Quote</th><th>Assists</th><th>Fehlwürfe</th><th>Fehler ges.</th><th>Ballgew.</th><th>Blocks</th><th>Strafen</th><th>Fehler</th><th>Bilanz</th></tr>' +
         '</thead><tbody>' + rows + '</tbody></table></div>' +
-        '<div class="table-footnote">Bilanz = Tore, Assists, erzwungene 7m, Ballgewinne und Blocks minus Angriffsfehler, Abwehrfehler und Strafen.</div>' +
+        '<div class="table-footnote">Fehlwürfe sind in den Angriffsfehlern gesamt enthalten. Bilanz = Tore, Assists, erzwungene 7m, Ballgewinne und Blocks minus Angriffsfehler, Abwehrfehler und Strafen.</div>' +
       '</section>' +
       '<section class="section"><h3>Auffälligkeiten</h3><div class="highlight-grid">' + highlightsHtml + '</div></section>' +
       '<section class="section"><h3>Angriff gegen Abwehr</h3><div class="blueprint split-card">' + corners() +
@@ -555,6 +567,73 @@ function renderEval() {
       '</div></section>' +
     '</div>'
   );
+}
+
+var SEASON_COLS = (function () {
+  function num(key, label, opts) {
+    opts = opts || {};
+    return {
+      key: key, label: label, title: opts.title || label,
+      cmp: function (a, b) { return a[key] - b[key]; },
+      cell: function (r) {
+        var v = opts.fmt ? opts.fmt(r[key]) : r[key];
+        return '<td style="font-variant-numeric:tabular-nums' + (opts.style || '') + '">' + v + '</td>';
+      }
+    };
+  }
+  var oneDec = function (n) { return (Math.round(n * 10) / 10).toFixed(1); };
+  return [
+    {
+      key: 'nr', label: 'Spieler', title: 'Rückennummer',
+      cmp: function (a, b) {
+        var an = a.nr == null ? Infinity : a.nr, bn = b.nr == null ? Infinity : b.nr;
+        if (an !== bn) return an - bn;
+        return String(a.name).localeCompare(String(b.name), 'de');
+      },
+      dir: 'asc',
+      cell: function (r) {
+        return '<td style="white-space:nowrap"><span style="font:600 14px/1 var(--font-heading);opacity:.45;font-variant-numeric:tabular-nums;margin-right:8px">' +
+          (r.nr != null ? r.nr : '–') + '</span>' + esc(r.name) + '</td>';
+      }
+    },
+    num('spiele', 'Spiele', { style: ';opacity:.7' }),
+    num('tore', 'Tore', { style: ';font-weight:500' }),
+    num('avgTore', 'Ø Tore', { style: ';opacity:.7', fmt: oneDec }),
+    {
+      key: 'quote', label: 'Quote', title: 'Wurfquote',
+      cmp: function (a, b) { return a.quote - b.quote; },
+      cell: function (r) {
+        return '<td><div class="quote-cell"><span class="quote-num">' + r.quote + '%</span>' +
+          '<span class="quote-track"><span class="quote-fill" style="width:' + r.quote + '%"></span></span></div></td>';
+      }
+    },
+    num('assist', 'Assists', { style: ';opacity:.7' }),
+    num('fehlwuerfe', 'Fehlwürfe'),
+    num('ballverluste', 'Ballverluste', { style: ';opacity:.7' }),
+    num('angFehler', 'Ang.-Fehler ges.', { title: 'Angriffsfehler gesamt' }),
+    num('ballgewinn', 'Ballgew.', { style: ';font-weight:500', title: 'Ballgewinne' }),
+    num('block', 'Blocks', { style: ';opacity:.7' }),
+    num('strafen', 'Strafen', { style: ';opacity:.7' }),
+    num('abwFehler', 'Abw.-Fehler', { title: 'Abwehrfehler' }),
+    {
+      key: 'avgBalance', label: 'Ø Bilanz', title: 'durchschnittliche Bilanz',
+      cmp: function (a, b) { return a.avgBalance - b.avgBalance; },
+      cell: function (r) {
+        var v = Math.round(r.avgBalance * 10) / 10;
+        return '<td><span class="tag ' + (v > 0 ? 'tag-accent' : 'tag-neutral') + '" style="font-variant-numeric:tabular-nums;font-weight:500">' + signed(v) + '</span></td>';
+      }
+    }
+  ];
+})();
+var SEASON_COLS_BY_KEY = {};
+SEASON_COLS.forEach(function (c) { SEASON_COLS_BY_KEY[c.key] = c; });
+
+function sortSeason(key) {
+  var col = SEASON_COLS_BY_KEY[key];
+  if (!col) return;
+  if (state.seasonSort === key) state.seasonDir = state.seasonDir === 'asc' ? 'desc' : 'asc';
+  else { state.seasonSort = key; state.seasonDir = col.dir || 'desc'; }
+  save(); render();
 }
 
 function renderSeason() {
@@ -607,48 +686,56 @@ function renderSeason() {
         if (s) addStats(t, s);
       }
     });
-    var b = balance(t);
-    var q = quote(t);
     return {
       nr: p ? p.nr : null,
       name: p ? p.name : '(entfernt)',
       spiele: spiele,
       tore: t.tore,
-      avgTore: spiele ? (t.tore / spiele).toFixed(1) : '0.0',
-      quote: q,
+      avgTore: spiele ? t.tore / spiele : 0,
+      quote: quote(t),
       assist: t.assist,
+      fehlwuerfe: t.fehlwuerfe,
+      ballverluste: t.ballverluste,
       angFehler: t.angFehler,
       ballgewinn: t.ballgewinn,
+      block: t.block,
       abwFehler: t.abwFehler,
-      avgBalance: spiele ? signed(Math.round((b / spiele) * 10) / 10) : '+0',
-      balanceTag: b > 0 ? 'tag-accent' : 'tag-neutral',
-      _sort: t.tore
+      strafen: t.strafen,
+      avgBalance: spiele ? balance(t) / spiele : 0
     };
-  }).sort(function (a, b) { return b._sort - a._sort; });
+  }).filter(function (r) {
+    // leere Kaderplätze (kein Name, kein Spiel) blähen die Tabelle nur auf
+    return r.spiele > 0 || (r.name && r.name.trim());
+  });
 
-  var seasonRowsHtml = seasonRows.map(function (r) {
-    return (
-      '<tr>' +
-        '<td style="white-space:nowrap"><span style="font:600 14px/1 var(--font-heading);opacity:.45;font-variant-numeric:tabular-nums;margin-right:8px">' + (r.nr != null ? r.nr : '–') + '</span>' + esc(r.name) + '</td>' +
-        '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + r.spiele + '</td>' +
-        '<td style="font-variant-numeric:tabular-nums;font-weight:500">' + r.tore + '</td>' +
-        '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + r.avgTore + '</td>' +
-        '<td><div class="quote-cell"><span class="quote-num">' + r.quote + '%</span><span class="quote-track"><span class="quote-fill" style="width:' + r.quote + '%"></span></span></div></td>' +
-        '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + r.assist + '</td>' +
-        '<td style="font-variant-numeric:tabular-nums">' + r.angFehler + '</td>' +
-        '<td style="font-variant-numeric:tabular-nums;font-weight:500">' + r.ballgewinn + '</td>' +
-        '<td style="font-variant-numeric:tabular-nums">' + r.abwFehler + '</td>' +
-        '<td><span class="tag ' + r.balanceTag + '" style="font-variant-numeric:tabular-nums;font-weight:500">' + r.avgBalance + '</span></td>' +
-      '</tr>'
-    );
+  var sorted = seasonRows.slice().sort(function (a, b) {
+    var col = SEASON_COLS_BY_KEY[state.seasonSort] || SEASON_COLS_BY_KEY.tore;
+    var r = col.cmp(a, b);
+    if (state.seasonDir === 'desc') r = -r;
+    // equal values keep the familiar roster order
+    if (r === 0) r = (a.nr == null ? Infinity : a.nr) - (b.nr == null ? Infinity : b.nr);
+    return r;
+  });
+
+  var seasonHeadHtml = SEASON_COLS.map(function (c) {
+    var on = state.seasonSort === c.key;
+    return '<th class="th-sort' + (on ? ' active' : '') + '" data-act="season-sort" data-key="' + c.key + '" title="Nach ' + esc(c.title || c.label) + ' sortieren">' +
+      esc(c.label) + '<span class="th-arrow">' + (on ? (state.seasonDir === 'asc' ? '▲' : '▼') : '') + '</span></th>';
+  }).join('');
+
+  var seasonRowsHtml = sorted.map(function (r) {
+    return '<tr>' + SEASON_COLS.map(function (c) { return c.cell(r); }).join('') + '</tr>';
   }).join('');
 
   return (
     '<div class="view">' +
       '<section class="section"><h3>Spiele der Saison</h3><div class="game-grid">' + newTile + liveTile + archiveTiles + '</div></section>' +
-      '<section class="section"><h3>Saisonwerte pro Spieler</h3><div class="table-wrap"><table class="table" style="min-width:820px"><thead>' +
-        '<tr><th>Spieler</th><th>Spiele</th><th>Tore</th><th>Ø Tore</th><th>Quote</th><th>Assists</th><th>Ang.-Fehler</th><th>Ballgew.</th><th>Abw.-Fehler</th><th>Ø Bilanz</th></tr>' +
-      '</thead><tbody>' + (seasonRowsHtml || '') + '</tbody></table></div></section>' +
+      '<section class="section">' +
+        '<div class="section-head"><h3>Saisonwerte pro Spieler</h3><span class="record-head-hint">Spaltenkopf antippen zum Sortieren</span></div>' +
+        '<div class="table-wrap"><table class="table" style="min-width:980px"><thead><tr>' + seasonHeadHtml + '</tr></thead>' +
+        '<tbody>' + (seasonRowsHtml || '') + '</tbody></table></div>' +
+        '<div class="table-footnote">Fehlwürfe sind Abschlüsse ohne Tor und in den Angriffsfehlern gesamt enthalten; Ballverluste sind Fehler ohne Abschluss (Fehlpass, Stürmerfoul, Schrittfehler).</div>' +
+      '</section>' +
     '</div>'
   );
 }
@@ -766,6 +853,7 @@ document.addEventListener('click', function (e) {
     case 'them-plus': themDelta(1); break;
     case 'them-minus': themDelta(-1); break;
     case 'sort': state.sort = el.getAttribute('data-key'); save(); render(); break;
+    case 'season-sort': sortSeason(el.getAttribute('data-key')); break;
     case 'open-new-game': openNewGameDialog(); break;
     case 'close-new-game': closeNewGameDialog(); break;
     case 'backdrop-new-game': if (e.target === el) closeNewGameDialog(); break;
