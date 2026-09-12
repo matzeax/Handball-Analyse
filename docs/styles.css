@@ -155,7 +155,10 @@ h6 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
 .clock-time { font: 600 22px/1.05 var(--font-heading); font-variant-numeric: tabular-nums; min-width: 64px; }
 .clock-half { font: 400 9px/1 var(--font-body); letter-spacing: .16em; text-transform: uppercase; opacity: .55; }
 .header-btn { min-height: 44px; border: 1px solid rgba(242,242,243,.3); background: transparent; color: inherit; cursor: pointer; padding: 0 14px; font: 600 12px/1.2 var(--font-heading); letter-spacing: .07em; text-transform: uppercase; }
+.header-btn { display: inline-flex; align-items: center; text-decoration: none; }
+.header-btn:hover { background: rgba(242,242,243,.08); }
 .header-btn.warn { border-color: rgba(226,140,120,.55); color: #e8b6a9; }
+.header-link { opacity: .7; border-style: dashed; }
 
 .tabs { display: flex; border: 1px solid rgba(242,242,243,.3); }
 .tab-btn { min-height: 44px; border: 0; cursor: pointer; padding: 0 18px; font: 600 13px/1.2 var(--font-heading); letter-spacing: .07em; text-transform: uppercase; background: transparent; color: inherit; }
