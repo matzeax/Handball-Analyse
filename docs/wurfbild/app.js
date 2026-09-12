@@ -606,11 +606,12 @@ function renderArchive() {
   var tiles = filtered.slice().reverse().map(function (game) {
     var sel = state.archiveGame === game.id;
     return (
-      '<button class="blueprint game-card' + (sel ? ' selected' : '') + '" data-act="archive-game" data-id="' + game.id + '">' + corners() +
+      '<div class="blueprint game-card' + (sel ? ' selected' : '') + '" role="button" tabindex="0" data-act="archive-game" data-id="' + game.id + '">' + corners() +
         '<div class="game-card-head"><span>' + fmtDateShort(game.date) + '</span><span>' + esc(game.homeAway) + '</span></div>' +
         '<div class="game-card-opp">' + esc(game.opponent) + '</div>' +
-        '<div class="game-card-result"><span class="game-card-score">' + game.shots.length + '</span><span class="game-card-unit">Gegentore · ' + game.players.length + ' Spieler</span></div>' +
-      '</button>'
+        '<div class="game-card-result"><span class="game-card-score">' + game.shots.length + '</span><span class="game-card-unit">Gegentore · ' + game.players.length + ' Spieler</span>' +
+          '<button class="game-card-delete" data-act="delete-game" data-id="' + game.id + '" title="Spiel löschen" aria-label="Spiel löschen">' + trashIcon() + '</button></div>' +
+      '</div>'
     );
   }).join('');
 
@@ -792,6 +793,9 @@ document.addEventListener('change', function (e) {
 });
 
 document.addEventListener('keydown', function (e) {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.getAttribute && e.target.getAttribute('data-act') === 'archive-game') {
+    e.preventDefault(); selectArchiveGame(e.target.getAttribute('data-id')); return;
+  }
   if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT') {
     if (playerDialog && (e.target.id === 'pdNr' || e.target.id === 'pdName')) { e.preventDefault(); submitPlayerDialog(!playerDialog.id); }
     else if (newGameDialog && e.target.id === 'ngOpponent') { e.preventDefault(); submitNewGame(); }

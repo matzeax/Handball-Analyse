@@ -269,6 +269,11 @@ function confirmEndGame() {
   save(); render();
 }
 
+function deleteArchiveGame(id) {
+  state.archive = state.archive.filter(function (g) { return g.id !== id; });
+  save(); render();
+}
+
 function addRosterPlayer() {
   state.roster.push({ id: uid('p'), nr: null, name: '', pos: '', active: true });
   save(); render();
@@ -579,7 +584,8 @@ function renderSeason() {
       '<div class="blueprint game-card">' + corners() +
         '<div class="game-card-head"><span>' + fmtDate(game.date) + '</span><span>' + esc(game.homeAway) + '</span></div>' +
         '<div class="game-card-opp">' + esc(game.opponent) + '</div>' +
-        '<div class="game-card-result"><span class="game-card-score">' + us + ':' + game.them + '</span><span class="tag ' + (win ? 'tag-accent' : 'tag-neutral') + '">' + (win ? 'Sieg' : draw ? 'Remis' : 'Nied.') + '</span></div>' +
+        '<div class="game-card-result"><span class="game-card-score">' + us + ':' + game.them + '</span><span class="tag ' + (win ? 'tag-accent' : 'tag-neutral') + '">' + (win ? 'Sieg' : draw ? 'Remis' : 'Nied.') + '</span>' +
+          '<button class="game-card-delete" data-act="delete-game" data-id="' + game.id + '" title="Spiel löschen" aria-label="Spiel löschen">' + trashIcon() + '</button></div>' +
       '</div>'
     );
   }).join('');
@@ -771,6 +777,9 @@ document.addEventListener('click', function (e) {
     case 'add-player': addRosterPlayer(); break;
     case 'delete-player':
       if (confirm('Diesen Spieler wirklich aus dem Kader entfernen?')) deleteRosterPlayer(el.getAttribute('data-id'));
+      break;
+    case 'delete-game':
+      if (confirm('Dieses Spiel endgültig aus dem Archiv löschen? Die Saisonwerte werden entsprechend angepasst.')) deleteArchiveGame(el.getAttribute('data-id'));
       break;
     case 'set-homeaway':
       if (newGameDialog) { newGameDialog.homeAway = el.getAttribute('data-value'); render(); }
