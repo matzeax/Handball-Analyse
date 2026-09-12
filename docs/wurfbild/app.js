@@ -2,6 +2,7 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
+var APP_VERSION = '2026-09-12b';
 var STORAGE_KEY = 'handball-wurfbild-v1';
 
 // The goal is split into 3 × 3 zones, read from the shooter's perspective.
@@ -389,7 +390,7 @@ function renderHeader() {
 
   return (
     '<header class="app-header">' +
-      '<div class="app-header-title"><div class="app-header-kicker">Wurfbild · Gegner</div><div class="app-header-match">' + title + '</div>' + meta + '</div>' +
+      '<div class="app-header-title"><div class="app-header-kicker">Wurfbild · Gegner · v' + APP_VERSION + '</div><div class="app-header-match">' + title + '</div>' + meta + '</div>' +
       middle +
       '<div class="tabs">' + tabs + '</div>' +
       '<a class="header-btn header-link" href="../index.html" title="Zur Spielanalyse wechseln">Spielanalyse ↗</a>' +
@@ -811,6 +812,17 @@ render();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js').catch(function () { /* offline caching unavailable */ });
+    // was this page already controlled? if not, the first install claiming it
+    // is no reason to reload - only a genuine version change is
+    var hadController = !!navigator.serviceWorker.controller;
+    var reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController || reloading) return;
+      reloading = true;
+      window.location.reload();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      reg.update();
+    }).catch(function () { /* offline caching unavailable */ });
   });
 }

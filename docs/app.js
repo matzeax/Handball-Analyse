@@ -2,6 +2,7 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
+var APP_VERSION = '2026-09-12b';
 var STORAGE_KEY = 'handball-tracker-v1';
 
 var ATT = [
@@ -351,7 +352,7 @@ function renderHeader() {
 
   return (
     '<header class="app-header">' +
-      '<div class="app-header-title"><div class="app-header-kicker">Spielanalyse</div><div class="app-header-match">' + title + '</div></div>' +
+      '<div class="app-header-title"><div class="app-header-kicker">Spielanalyse · v' + APP_VERSION + '</div><div class="app-header-match">' + title + '</div></div>' +
       middle +
       '<div class="tabs">' + tabs + '</div>' +
       '<a class="header-btn header-link" href="wurfbild/index.html" title="Zum Wurfbild der Gegenspieler wechseln">Wurfbild ↗</a>' +
@@ -919,6 +920,17 @@ render();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js').catch(function () { /* offline caching unavailable */ });
+    // was this page already controlled? if not, the first install claiming it
+    // is no reason to reload - only a genuine version change is
+    var hadController = !!navigator.serviceWorker.controller;
+    var reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController || reloading) return;
+      reloading = true;
+      window.location.reload();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      reg.update();
+    }).catch(function () { /* offline caching unavailable */ });
   });
 }
