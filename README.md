@@ -23,3 +23,10 @@ The design medium is **HTML/CSS/JS** — these are prototypes, not production co
 - `README.md` — this file
 - `chats/` — conversation transcripts (read these!)
 - `project/` — the `Handball-Tracking App für Trainer` project files (HTML prototypes, assets, components)
+
+## Apps in `docs/` (GitHub Pages)
+
+- `docs/index.html` — **Handball Spielanalyse**: Live-Erfassung der eigenen Spieler (Angriff/Abwehr), Auswertung, Saison-Archiv, Kader.
+- `docs/wurfbild/index.html` — **Handball Wurfbild**: Wurfbild der Gegenspieler. Gegenspieler antippen, dann den Torbereich (3 × 3 Zonen) antippen, in dem der Ball eingeschlagen ist. Auswertung pro Spieler und gesamt, Archiv nach Spiel und Gegner (Kader eines Gegners kann beim nächsten Spiel übernommen werden).
+
+Beide Apps sind eigenständige PWAs im gleichen Design, speichern lokal im Browser (localStorage) und sind über den Header gegenseitig verlinkt.

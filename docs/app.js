@@ -340,6 +340,7 @@ function renderHeader() {
       '<div class="app-header-title"><div class="app-header-kicker">Spielanalyse</div><div class="app-header-match">' + title + '</div></div>' +
       middle +
       '<div class="tabs">' + tabs + '</div>' +
+      '<a class="header-btn header-link" href="wurfbild/index.html" title="Zum Wurfbild der Gegenspieler wechseln">Wurfbild ↗</a>' +
     '</header>'
   );
 }
