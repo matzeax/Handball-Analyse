@@ -30,3 +30,4 @@ The design medium is **HTML/CSS/JS** — these are prototypes, not production co
 - `docs/wurfbild/index.html` — **Handball Wurfbild**: Wurfbild der Gegenspieler. Gegenspieler antippen, dann den Torbereich (3 × 3 Zonen) antippen, in dem der Ball eingeschlagen ist. Auswertung pro Spieler und gesamt, Archiv nach Spiel und Gegner (Kader eines Gegners kann beim nächsten Spiel übernommen werden).
 
 Beide Apps sind eigenständige PWAs im gleichen Design, speichern lokal im Browser (localStorage) und sind über den Header gegenseitig verlinkt.
+- `docs/partyzelt/index.html` — **NOXBOX 30 Partyzelt-Vermietung**: eigenständige Landing-/Shopseite für ein aufblasbares Nachtclub-Zelt (5 × 6 m). Zeitraum im Kalender wählen, Extras, Preisberechnung, Zahlung per PayPal-Button. Konfiguration (PayPal-Client-ID, Preise, belegte Tage, Bilder) im `CONFIG`-Block von `docs/partyzelt/app.js`; Produktbilder nach `docs/partyzelt/img/` (siehe README dort).
