@@ -68,6 +68,7 @@ function fmtDate(iso) {
   if (p.length !== 3) return iso;
   return p[2] + '.' + p[1] + '.';
 }
+function halfLimitSec(g) { return (g.halfMinutes || 30) * 60; }
 
 /* ══════════════════════ state & persistence ══════════════════════ */
 
@@ -120,6 +121,11 @@ function load() {
       var elapsed = Math.round((Date.now() - parsed.currentGame.lastTickAt) / 1000);
       if (elapsed > 0) parsed.currentGame.sec += elapsed;
       parsed.currentGame.lastTickAt = Date.now();
+      var limit0 = halfLimitSec(parsed.currentGame);
+      if (parsed.currentGame.sec >= limit0) {
+        parsed.currentGame.sec = limit0;
+        parsed.currentGame.running = false;
+      }
     }
     return parsed;
   } catch (e) {
@@ -298,8 +304,17 @@ function deleteRosterPlayer(id) {
 setInterval(function () {
   var g = state.currentGame;
   if (g && g.running) {
+    var limit = halfLimitSec(g);
+    var wasBelowLimit = g.sec < limit;
     g.sec++;
     g.lastTickAt = Date.now();
+    if (wasBelowLimit && g.sec >= limit) {
+      g.sec = limit;
+      g.running = false;
+      save();
+      render();
+      return;
+    }
     save();
     var el = document.getElementById('clockTime');
     if (el) el.textContent = fmtClock(g.sec);
