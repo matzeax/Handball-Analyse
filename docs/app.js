@@ -2,7 +2,7 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
-var APP_VERSION = '2026-09-15a';
+var APP_VERSION = '2026-09-15b';
 var STORAGE_KEY = 'handball-tracker-v1';
 
 var ATT = [
@@ -188,6 +188,33 @@ function defScore(s) { return s.ballgewinn + s.block - s.abwFehler - s.strafen; 
 function balance(s) { return attScore(s) + defScore(s); }
 function quote(s) { return s.wuerfe ? Math.round((s.tore / s.wuerfe) * 100) : 0; }
 
+// Angriffszeit: Sekunden von einem Gegentor (Abwehr-Aktion oder das Plus am
+// Spielstand) bis zur nächsten Angriffsaktion, die kein Assist und kein
+// erzwungener 7m ist - beide zählen als Randnotiz zu einer Aktion, nicht als
+// deren Abschluss, also wird bei ihnen weiter auf die eigentliche Aktion gewartet.
+function attackTimes(game) {
+  var times = [];
+  var pendingSince = null;
+  game.events.forEach(function (e) {
+    if (e.code === 'gegentor') { pendingSince = e.sec; return; }
+    if (pendingSince == null) return;
+    var a = ACTION_BY_CODE[e.code];
+    if (!a || !ATT_CODES[a.code]) return; // Abwehraktionen unterbrechen die Wartezeit nicht
+    if (a.code === 'assist' || a.code === 'erzw7') return; // noch nicht der Abschluss
+    var dur = e.sec - pendingSince;
+    pendingSince = null;
+    if (dur >= 0) times.push(dur); // negative Werte = über eine Halbzeitgrenze hinweg, verwerfen
+  });
+  return times;
+}
+function avgAttackTimeSec(games) {
+  var all = [];
+  games.forEach(function (g) { all = all.concat(attackTimes(g)); });
+  if (!all.length) return null;
+  var sum = all.reduce(function (a, b) { return a + b; }, 0);
+  return { avg: sum / all.length, count: all.length };
+}
+
 function playerById(id) {
   for (var i = 0; i < state.roster.length; i++) if (state.roster[i].id === id) return state.roster[i];
   return null;
@@ -243,6 +270,9 @@ function themDelta(n) {
   var g = state.currentGame;
   if (!g) return;
   g.them = Math.max(0, g.them + n);
+  // a goal conceded via the quick +, not attributed to a defender, still marks
+  // the start of our next attack for the Ø Angriffszeit measurement below
+  if (n > 0) g.events.push({ id: uid('e'), playerId: null, code: 'gegentor', sec: g.sec });
   save(); render();
 }
 
@@ -483,13 +513,16 @@ function renderEval() {
     teamFehlwurf += w.s.fehlwuerfe; teamVerlust += w.s.ballverluste;
   });
 
+  var gameAtk = avgAttackTimeSec([g]);
+
   var kpis = [
     { label: 'Wurfquote', value: (teamShots ? Math.round((scoreUs / teamShots) * 100) : 0) + '%', sub: scoreUs + ' Tore aus ' + teamShots + ' Würfen' },
     { label: 'Fehlwürfe', value: String(teamFehlwurf), sub: 'Abschlüsse ohne Tor' },
     { label: 'Angriffsfehler gesamt', value: String(teamAng), sub: teamFehlwurf + ' Fehlwürfe · ' + teamVerlust + ' Ballverluste' },
     { label: 'Abwehrfehler', value: String(teamAbw), sub: 'Lücken, Stellung, Gegentore' },
     { label: 'Ballgewinne + Blocks', value: String(teamBall + teamBlock), sub: teamBall + ' Gewinne · ' + teamBlock + ' Blocks' },
-    { label: 'Strafen', value: String(teamStraf), sub: 'Zeitstrafen' }
+    { label: 'Strafen', value: String(teamStraf), sub: 'Zeitstrafen' },
+    { label: 'Ø Angriffszeit', value: gameAtk ? fmtClock(Math.round(gameAtk.avg)) : '–', sub: gameAtk ? gameAtk.count + ' gemessene Angriffe' : 'Gegentor bis nächste Aktion' }
   ];
   var kpiHtml = kpis.map(function (k) {
     return '<div class="blueprint kpi-card">' + corners() + '<div class="kpi-label">' + k.label + '</div><div class="kpi-value">' + k.value + '</div><div class="kpi-sub">' + k.sub + '</div></div>';
@@ -687,6 +720,10 @@ function renderSeason() {
 
   // season aggregation across archive + current game
   var games = state.archive.concat(g ? [g] : []);
+  var seasonAtk = avgAttackTimeSec(games);
+  var seasonAtkHtml = '<div class="blueprint kpi-card">' + corners() +
+    '<div class="kpi-label">Ø Angriffszeit</div><div class="kpi-value">' + (seasonAtk ? fmtClock(Math.round(seasonAtk.avg)) : '–') + '</div>' +
+    '<div class="kpi-sub">' + (seasonAtk ? seasonAtk.count + ' gemessene Angriffe · Saison' : 'Gegentor bis nächste Aktion') + '</div></div>';
   var known = {};
   state.roster.forEach(function (p) { known[p.id] = true; });
   games.forEach(function (game) { (game.rosterIds || []).forEach(function (id) { known[id] = true; }); });
@@ -745,6 +782,7 @@ function renderSeason() {
 
   return (
     '<div class="view">' +
+      '<div class="kpi-grid">' + seasonAtkHtml + '</div>' +
       '<section class="section"><h3>Spiele der Saison</h3><div class="game-grid">' + newTile + liveTile + archiveTiles + '</div></section>' +
       '<section class="section">' +
         '<div class="section-head"><h3>Saisonwerte pro Spieler</h3><span class="record-head-hint">Spaltenkopf antippen zum Sortieren</span></div>' +
