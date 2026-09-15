@@ -2,7 +2,7 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
-var APP_VERSION = '2026-09-12b';
+var APP_VERSION = '2026-09-15a';
 var STORAGE_KEY = 'handball-tracker-v1';
 
 var ATT = [

@@ -1,4 +1,4 @@
-var CACHE = 'handball-spielanalyse-2026-09-12b';
+var CACHE = 'handball-spielanalyse-2026-09-15a';
 var ASSETS = [
   './',
   './index.html',
