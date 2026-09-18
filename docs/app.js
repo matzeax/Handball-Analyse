@@ -2,7 +2,7 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
-var APP_VERSION = '2026-09-18d';
+var APP_VERSION = '2026-09-18e';
 var STORAGE_KEY = 'handball-tracker-v1';
 
 var ATT = [
@@ -30,6 +30,25 @@ var ATT_CODES = {};
 ATT.forEach(function (a) { ATT_CODES[a.code] = true; });
 var ACTION_BY_CODE = {};
 ATT.concat(DEF).forEach(function (a) { ACTION_BY_CODE[a.code] = a; });
+
+// Standard-Wertigkeiten für die Bilanz - vor der Wertigkeiten-Funktion konnte
+// jede Aktion nur +1/-1 zählen; hier lässt sich jede Aktion einzeln gewichten.
+// Die Werte entsprechen dem bisherigen Verhalten, bis der Trainer sie in der
+// Kader-Verwaltung anpasst. "Gegner Fehlwurf" fehlt bewusst - die Aktion wird
+// nie einem eigenen Spieler zugeordnet und geht daher nie in eine Bilanz ein.
+var WEIGHT_DEFAULTS = {
+  tor: 1, tempo: 1, assist: 1, erzw7: 1,
+  fehlwurf: -1, fehlpass: -1, stuermer: -1, schritt: -1,
+  ballgewinn: 1, block: 1, stellung: -1, gegentor: -1, verurs7: -1, zeit2: -1,
+  twSave: 1
+};
+function getWeight(code) {
+  if (state.weights && state.weights[code] != null) return state.weights[code];
+  return WEIGHT_DEFAULTS[code] || 0;
+}
+// Aktionen, die in der Wertigkeiten-Liste editierbar sind - alle außer
+// Gegner-Aktionen ohne Spielerzuordnung (opp ohne pickPos, z.B. Gegner Fehlwurf).
+var WEIGHTABLE_ACTIONS = ATT.concat(DEF.filter(function (a) { return !a.opp || a.pickPos; }));
 
 var POSITIONS = [
   { code: '', label: '–' },
@@ -99,7 +118,8 @@ function defaultState() {
     sel: null,
     sort: 'balance',
     seasonSort: 'tore',
-    seasonDir: 'desc'
+    seasonDir: 'desc',
+    weights: Object.assign({}, WEIGHT_DEFAULTS)
   };
 }
 
@@ -120,6 +140,9 @@ function load() {
     parsed.sort = parsed.sort || 'balance';
     parsed.seasonSort = parsed.seasonSort || 'tore';
     parsed.seasonDir = parsed.seasonDir === 'asc' ? 'asc' : 'desc';
+    // Defaults zuerst, gespeicherte Werte überschreiben sie - so bekommen
+    // neu hinzugekommene Aktionen automatisch eine sinnvolle Wertigkeit.
+    parsed.weights = Object.assign({}, WEIGHT_DEFAULTS, parsed.weights || {});
     if (parsed.currentGame && parsed.currentGame.running && parsed.currentGame.lastTickAt) {
       var elapsed = Math.round((Date.now() - parsed.currentGame.lastTickAt) / 1000);
       if (elapsed > 0) parsed.currentGame.sec += elapsed;
@@ -186,9 +209,34 @@ function computeStats(game) {
   return map;
 }
 
-function attScore(s) { return s.tore + s.assist + s.erzw7 - s.angFehler; }
-function defScore(s) { return s.ballgewinn + s.block - s.abwFehler - s.strafen; }
-function balance(s) { return attScore(s) + defScore(s); }
+// Bilanz = Summe der Wertigkeiten der eigenen Aktionen eines Spielers, getrennt
+// nach Angriff/Abwehr. Ersetzt die frühere feste +1/-1 Zählung pro Kategorie.
+function weightedScoresForGame(game) {
+  var map = {};
+  game.events.forEach(function (e) {
+    if (e.playerId == null) return; // Gegner-Aktionen zählen in keine Spieler-Bilanz
+    var a = ACTION_BY_CODE[e.code];
+    if (!a) return;
+    if (!map[e.playerId]) map[e.playerId] = { att: 0, def: 0 };
+    var w = getWeight(e.code);
+    if (ATT_CODES[a.code]) map[e.playerId].att += w; else map[e.playerId].def += w;
+  });
+  return map;
+}
+function sumWeightedScores(games) {
+  var total = {};
+  games.forEach(function (game) {
+    var ws = weightedScoresForGame(game);
+    Object.keys(ws).forEach(function (id) {
+      if (!total[id]) total[id] = { att: 0, def: 0 };
+      total[id].att += ws[id].att; total[id].def += ws[id].def;
+    });
+  });
+  return total;
+}
+function attScore(ws) { return ws.att; }
+function defScore(ws) { return ws.def; }
+function balance(ws) { return ws.att + ws.def; }
 function quote(s) { return s.wuerfe ? Math.round((s.tore / s.wuerfe) * 100) : 0; }
 
 // Angriffszeit: Sekunden ab einem Ballübergang zu uns - Gegentor (Abwehr-Aktion
@@ -391,6 +439,10 @@ function deleteRosterPlayer(id) {
   state.roster = state.roster.filter(function (p) { return p.id !== id; });
   save(); render();
 }
+function resetWeights() {
+  state.weights = Object.assign({}, WEIGHT_DEFAULTS);
+  save(); render();
+}
 
 /* ══════════════════════ ticking clock ══════════════════════ */
 
@@ -484,15 +536,17 @@ function renderLive() {
   }
   var roster = sortedRoster(state.roster.filter(function (p) { return g.rosterIds.indexOf(p.id) > -1; }));
   var stats = computeStats(g);
+  var wscores = weightedScoresForGame(g);
 
   var rosterHtml = roster.map(function (p) {
     var s = stats[p.id] || blankStats();
+    var ws = wscores[p.id] || { att: 0, def: 0 };
     var on = state.sel === p.id;
     return (
       '<button class="roster-item' + (on ? ' active' : '') + '" data-act="select-player" data-id="' + p.id + '">' +
         '<span class="roster-nr">' + (p.nr != null ? p.nr : '–') + '</span>' +
         '<span class="roster-name-col"><span class="roster-name">' + esc(p.name || '(ohne Namen)') + '</span><span class="roster-pos">' + esc(p.pos || '–') + '</span></span>' +
-        '<span class="roster-tally">' + s.tore + '/' + signed(balance(s)) + '</span>' +
+        '<span class="roster-tally">' + s.tore + '/' + signed(balance(ws)) + '</span>' +
       '</button>'
     );
   }).join('');
@@ -593,7 +647,8 @@ function renderEval() {
   }
   var roster = state.roster.filter(function (p) { return g.rosterIds.indexOf(p.id) > -1; });
   var stats = computeStats(g);
-  var wrapped = roster.map(function (p) { return { p: p, s: stats[p.id] || blankStats() }; });
+  var wscores = weightedScoresForGame(g);
+  var wrapped = roster.map(function (p) { return { p: p, s: stats[p.id] || blankStats(), ws: wscores[p.id] || { att: 0, def: 0 } }; });
 
   var teamShots = 0, teamAng = 0, teamAbw = 0, teamBall = 0, teamBlock = 0, teamStraf = 0, scoreUs = 0, teamFehlwurf = 0, teamVerlust = 0;
   wrapped.forEach(function (w) {
@@ -623,7 +678,7 @@ function renderEval() {
     tore: function (a, b) { return b.s.tore - a.s.tore; },
     quote: function (a, b) { return quote(b.s) - quote(a.s); },
     fehler: function (a, b) { return (b.s.angFehler + b.s.abwFehler) - (a.s.angFehler + a.s.abwFehler); },
-    balance: function (a, b) { return balance(b.s) - balance(a.s); }
+    balance: function (a, b) { return balance(b.ws) - balance(a.ws); }
   };
   var sorters = [
     { key: 'tore', label: 'Tore' }, { key: 'quote', label: 'Quote' },
@@ -635,7 +690,7 @@ function renderEval() {
   var sorted = wrapped.slice().sort(sortFns[state.sort] || sortFns.balance);
 
   var rows = sorted.map(function (w) {
-    var b = balance(w.s), q = quote(w.s);
+    var b = balance(w.ws), q = quote(w.s);
     return (
       '<tr>' +
         '<td style="white-space:nowrap"><span style="font:600 14px/1 var(--font-heading);opacity:.45;font-variant-numeric:tabular-nums;margin-right:8px">' + (w.p.nr != null ? w.p.nr : '–') + '</span>' + esc(w.p.name) + '</td>' +
@@ -655,18 +710,18 @@ function renderEval() {
   }).join('');
 
   var maxSplit = 4;
-  wrapped.forEach(function (w) { maxSplit = Math.max(maxSplit, Math.abs(attScore(w.s)), Math.abs(defScore(w.s))); });
+  wrapped.forEach(function (w) { maxSplit = Math.max(maxSplit, Math.abs(attScore(w.ws)), Math.abs(defScore(w.ws))); });
   function bar(v) {
     var w = (Math.abs(v) / maxSplit) * 50;
     return { left: (v >= 0 ? 50 : 50 - w) + '%', w: w + '%', color: v >= 0 ? 'var(--color-accent)' : 'var(--color-neutral-500)' };
   }
   var splitRows = sorted.map(function (w) {
-    var a = bar(attScore(w.s)), d = bar(defScore(w.s));
+    var a = bar(attScore(w.ws)), d = bar(defScore(w.ws));
     return (
       '<div class="split-row">' +
         '<span class="split-name"><span class="nr">' + (w.p.nr != null ? w.p.nr : '–') + '</span>' + esc(w.p.name) + '</span>' +
-        '<span class="split-bar"><span class="split-track"><span class="split-fill" style="left:' + a.left + ';width:' + a.w + ';background:' + a.color + '"></span><span class="split-mid"></span></span><span class="split-value">' + signed(attScore(w.s)) + '</span></span>' +
-        '<span class="split-bar"><span class="split-track"><span class="split-fill" style="left:' + d.left + ';width:' + d.w + ';background:' + d.color + '"></span><span class="split-mid"></span></span><span class="split-value">' + signed(defScore(w.s)) + '</span></span>' +
+        '<span class="split-bar"><span class="split-track"><span class="split-fill" style="left:' + a.left + ';width:' + a.w + ';background:' + a.color + '"></span><span class="split-mid"></span></span><span class="split-value">' + signed(attScore(w.ws)) + '</span></span>' +
+        '<span class="split-bar"><span class="split-track"><span class="split-fill" style="left:' + d.left + ';width:' + d.w + ';background:' + d.color + '"></span><span class="split-mid"></span></span><span class="split-value">' + signed(defScore(w.ws)) + '</span></span>' +
       '</div>'
     );
   }).join('');
@@ -677,7 +732,7 @@ function renderEval() {
     var topScorer = wrapped.slice().sort(function (a, b) { return b.s.tore - a.s.tore; })[0];
     var bestQuote = (shooters.length ? shooters : wrapped).slice().sort(function (a, b) { return quote(b.s) - quote(a.s); })[0];
     var mostErr = wrapped.slice().sort(function (a, b) { return (b.s.angFehler + b.s.abwFehler) - (a.s.angFehler + a.s.abwFehler); })[0];
-    var bestDef = wrapped.slice().sort(function (a, b) { return defScore(b.s) - defScore(a.s); })[0];
+    var bestDef = wrapped.slice().sort(function (a, b) { return defScore(b.ws) - defScore(a.ws); })[0];
     function hiCard(tag, w, text, dark) {
       var name = (w.p.nr != null ? w.p.nr + ' ' : '') + esc(w.p.name);
       return '<div class="blueprint highlight-card' + (dark ? ' dark' : '') + '">' + corners() +
@@ -822,6 +877,7 @@ function renderSeason() {
   var known = {};
   state.roster.forEach(function (p) { known[p.id] = true; });
   games.forEach(function (game) { (game.rosterIds || []).forEach(function (id) { known[id] = true; }); });
+  var seasonWeighted = sumWeightedScores(games);
 
   var seasonRows = Object.keys(known).map(function (id) {
     var p = playerById(id);
@@ -834,6 +890,7 @@ function renderSeason() {
         if (s) addStats(t, s);
       }
     });
+    var ws = seasonWeighted[id] || { att: 0, def: 0 };
     return {
       nr: p ? p.nr : null,
       name: p ? p.name : '(entfernt)',
@@ -849,7 +906,7 @@ function renderSeason() {
       block: t.block,
       abwFehler: t.abwFehler,
       strafen: t.strafen,
-      avgBalance: spiele ? balance(t) / spiele : 0
+      avgBalance: spiele ? balance(ws) / spiele : 0
     };
   }).filter(function (r) {
     // leere Kaderplätze (kein Name, kein Spiel) blähen die Tabelle nur auf
@@ -905,6 +962,17 @@ function renderRoster() {
     );
   }).join('');
 
+  function weightRow(a) {
+    return (
+      '<div class="weight-row">' +
+        '<span class="weight-label">' + esc(a.label) + '</span>' +
+        '<input class="input weight-input" type="number" step="1" data-weight="' + a.code + '" value="' + getWeight(a.code) + '">' +
+      '</div>'
+    );
+  }
+  var attWeightRows = ATT.map(weightRow).join('');
+  var defWeightRows = DEF.filter(function (a) { return !a.opp || a.pickPos; }).map(weightRow).join('');
+
   return (
     '<div class="view">' +
       '<section class="section">' +
@@ -914,6 +982,14 @@ function renderRoster() {
         '</div>' +
         '<div class="table-wrap"><table class="table roster-table"><thead><tr><th>Nr.</th><th>Name</th><th>Position</th><th style="text-align:center">Aktiv</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
         '<button class="btn btn-secondary" data-act="add-player">+ Spieler hinzufügen</button>' +
+      '</section>' +
+      '<section class="section">' +
+        '<div class="section-head"><h3>Wertigkeiten für die Bilanz</h3><button class="btn btn-secondary" data-act="reset-weights">Zurücksetzen</button></div>' +
+        '<div class="weight-columns">' +
+          '<div><h6>Angriff</h6><div class="weight-list">' + attWeightRows + '</div></div>' +
+          '<div><h6>Abwehr</h6><div class="weight-list">' + defWeightRows + '</div></div>' +
+        '</div>' +
+        '<div class="table-footnote">Bilanz eines Spielers = Summe der Wertigkeiten seiner eigenen Aktionen - im Spiel (Auswertung) bzw. im Schnitt pro Spiel (Saison). "Gegner Fehlwurf" fließt nie ein, da die Aktion keinem eigenen Spieler zugeordnet wird.</div>' +
       '</section>' +
     '</div>'
   );
@@ -1046,6 +1122,7 @@ document.addEventListener('click', function (e) {
     case 'backdrop-end-game': if (e.target === el) closeEndGameDialog(); break;
     case 'confirm-end-game': confirmEndGame(); break;
     case 'add-player': addRosterPlayer(); break;
+    case 'reset-weights': resetWeights(); break;
     case 'delete-player':
       if (confirm('Diesen Spieler wirklich aus dem Kader entfernen?')) deleteRosterPlayer(el.getAttribute('data-id'));
       break;
@@ -1072,6 +1149,13 @@ document.addEventListener('input', function (e) {
   if (t.id === 'ngDate' && newGameDialog) { newGameDialog.date = t.value; return; }
   if (t.id === 'ngHalfMinutes' && newGameDialog) { newGameDialog.halfMinutes = t.value; return; }
   if (t.id === 'teamNameInput') { state.teamName = t.value; save(); return; }
+  var weightCode = t.getAttribute('data-weight');
+  if (weightCode) {
+    var wv = Number(t.value);
+    state.weights[weightCode] = isNaN(wv) ? 0 : wv;
+    save();
+    return;
+  }
   var field = t.getAttribute('data-field');
   if (!field) return;
   var id = t.getAttribute('data-id');
