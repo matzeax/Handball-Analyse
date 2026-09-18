@@ -202,6 +202,9 @@ h6 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
 .action-count { font: 600 11px/1 var(--font-heading); font-variant-numeric: tabular-nums; }
 .action-btn.good .action-count { opacity: .75; }
 .action-btn.bad .action-count { opacity: .5; }
+.action-extra { display: flex; justify-content: flex-end; padding-top: 9px; margin-top: 2px; border-top: 1px dashed var(--color-divider); }
+.action-btn.opp { flex: 0 0 auto; min-width: 120px; border: 1px solid var(--color-accent-2); background: var(--color-accent-2); color: var(--color-bg); }
+.action-btn.opp .action-count { opacity: .75; }
 
 .log-section { display: flex; flex-direction: column; gap: 6px; }
 .log-section h6 { margin: 0; }
