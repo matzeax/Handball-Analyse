@@ -2,7 +2,7 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
-var APP_VERSION = '2026-09-15b';
+var APP_VERSION = '2026-09-18a';
 var STORAGE_KEY = 'handball-tracker-v1';
 
 var ATT = [
@@ -18,11 +18,12 @@ var ATT = [
 var DEF = [
   { code: 'ballgewinn', label: 'Ballgewinn', pos: 1 },
   { code: 'block', label: 'Block', pos: 1 },
-  { code: 'luecke', label: 'Abwehr-Lücke', neg: 1 },
   { code: 'stellung', label: 'Stellungsfehler', neg: 1 },
-  { code: 'gegentor', label: 'Gegentor zugel.', neg: 1 },
+  { code: 'gegentor', label: 'Gegentor zugel.', neg: 1, startsAttack: 1 },
   { code: 'verurs7', label: '7m verursacht', neg: 1 },
-  { code: 'zeit2', label: 'Zeitstrafe 2′', neg: 1, strafe: 1 }
+  { code: 'zeit2', label: 'Zeitstrafe 2′', neg: 1, strafe: 1 },
+  // Gegner-Aktion, keinem eigenen Spieler zugeordnet - eigener Platz/Ton im Abwehr-Block
+  { code: 'oppFehlwurf', label: 'Gegner Fehlwurf', opp: 1, startsAttack: 1 }
 ];
 var ATT_CODES = {};
 ATT.forEach(function (a) { ATT_CODES[a.code] = true; });
@@ -188,17 +189,18 @@ function defScore(s) { return s.ballgewinn + s.block - s.abwFehler - s.strafen; 
 function balance(s) { return attScore(s) + defScore(s); }
 function quote(s) { return s.wuerfe ? Math.round((s.tore / s.wuerfe) * 100) : 0; }
 
-// Angriffszeit: Sekunden von einem Gegentor (Abwehr-Aktion oder das Plus am
-// Spielstand) bis zur nächsten Angriffsaktion, die kein Assist und kein
-// erzwungener 7m ist - beide zählen als Randnotiz zu einer Aktion, nicht als
-// deren Abschluss, also wird bei ihnen weiter auf die eigentliche Aktion gewartet.
+// Angriffszeit: Sekunden ab einem Ballübergang zu uns - Gegentor (Abwehr-Aktion
+// oder das Plus am Spielstand) oder Gegner-Fehlwurf - bis zur nächsten
+// Angriffsaktion, die kein Assist und kein erzwungener 7m ist - beide zählen
+// als Randnotiz zu einer Aktion, nicht als deren Abschluss, also wird bei
+// ihnen weiter auf die eigentliche Aktion gewartet.
 function attackTimes(game) {
   var times = [];
   var pendingSince = null;
   game.events.forEach(function (e) {
-    if (e.code === 'gegentor') { pendingSince = e.sec; return; }
-    if (pendingSince == null) return;
     var a = ACTION_BY_CODE[e.code];
+    if (a && a.startsAttack) { pendingSince = e.sec; return; }
+    if (pendingSince == null) return;
     if (!a || !ATT_CODES[a.code]) return; // Abwehraktionen unterbrechen die Wartezeit nicht
     if (a.code === 'assist' || a.code === 'erzw7') return; // noch nicht der Abschluss
     var dur = e.sec - pendingSince;
@@ -238,6 +240,13 @@ function recordEvent(code) {
   if (!g || !state.sel) return;
   g.events.push({ id: uid('e'), playerId: state.sel, code: code, sec: g.sec });
   if (code === 'gegentor') g.them++;
+  save(); render();
+}
+function recordOppEvent(code) {
+  // Gegner-Aktion: keinem eigenen Spieler zugeordnet, braucht daher keine Auswahl
+  var g = state.currentGame;
+  if (!g) return;
+  g.events.push({ id: uid('e'), playerId: null, code: code, sec: g.sec });
   save(); render();
 }
 function undoLast() {
@@ -451,11 +460,24 @@ function renderLive() {
       '</button>'
     );
   }
+  function countForOpp(code) {
+    var n = g.events.filter(function (e) { return e.playerId == null && e.code === code; }).length;
+    return n ? String(n) : '–';
+  }
+  function oppActionBtn(a) {
+    return (
+      '<button class="action-btn opp" data-act="record-opp" data-code="' + a.code + '">' +
+        '<span class="action-label">' + esc(a.label) + '</span>' +
+        '<span class="action-count">' + countForOpp(a.code) + '</span>' +
+      '</button>'
+    );
+  }
 
   var attGood = ATT.filter(function (a) { return a.pos; }).map(function (a) { return actionBtn(a, 'good'); }).join('');
   var attBad = ATT.filter(function (a) { return a.neg; }).map(function (a) { return actionBtn(a, 'bad'); }).join('');
   var defGood = DEF.filter(function (a) { return a.pos; }).map(function (a) { return actionBtn(a, 'good'); }).join('');
-  var defBad = DEF.filter(function (a) { return a.neg; }).map(function (a) { return actionBtn(a, 'bad'); }).join('');
+  var defBad = DEF.filter(function (a) { return a.neg && !a.opp; }).map(function (a) { return actionBtn(a, 'bad'); }).join('');
+  var defOpp = DEF.filter(function (a) { return a.opp; }).map(oppActionBtn).join('');
 
   var log = g.events.filter(function (e) { return !!ACTION_BY_CODE[e.code]; }).slice().reverse().slice(0, 8).map(function (e) {
     var a = ACTION_BY_CODE[e.code];
@@ -489,6 +511,7 @@ function renderLive() {
           '<div class="blueprint action-block">' + corners() +
             '<div class="action-head"><h4>Abwehr</h4><span class="action-sub">Gewinn · Fehler · Strafe</span></div>' +
             '<div class="action-buttons">' + defGood + defBad + '</div>' +
+            (defOpp ? '<div class="action-extra">' + defOpp + '</div>' : '') +
           '</div>' +
         '</div>' +
         '<div class="log-section"><h6>Protokoll · ' + g.events.length + ' Aktionen</h6>' + log + '</div>' +
@@ -900,6 +923,7 @@ document.addEventListener('click', function (e) {
     case 'switch-tab': switchView(el.getAttribute('data-view')); break;
     case 'select-player': selectPlayer(el.getAttribute('data-id')); break;
     case 'record': recordEvent(el.getAttribute('data-code')); break;
+    case 'record-opp': recordOppEvent(el.getAttribute('data-code')); break;
     case 'undo': undoLast(); break;
     case 'remove-log': removeEvent(el.getAttribute('data-id')); break;
     case 'toggle-clock': toggleClock(); break;
