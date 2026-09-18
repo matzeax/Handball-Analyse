@@ -2,7 +2,7 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
-var APP_VERSION = '2026-09-18b';
+var APP_VERSION = '2026-09-18c';
 var STORAGE_KEY = 'handball-tracker-v1';
 
 var ATT = [
@@ -23,7 +23,8 @@ var DEF = [
   { code: 'verurs7', label: '7m verursacht', neg: 1 },
   { code: 'zeit2', label: 'Zeitstrafe 2′', neg: 1, strafe: 1 },
   // Gegner-Aktion, keinem eigenen Spieler zugeordnet - eigener Platz/Ton im Abwehr-Block
-  { code: 'oppFehlwurf', label: 'Gegner Fehlwurf', opp: 1, startsAttack: 1 }
+  { code: 'oppFehlwurf', label: 'Gegner Fehlwurf', opp: 1, startsAttack: 1 },
+  { code: 'twSave', label: 'Torwart gehalten', opp: 1, startsAttack: 1, pickPos: 'TW' }
 ];
 var ATT_CODES = {};
 ATT.forEach(function (a) { ATT_CODES[a.code] = true; });
@@ -105,6 +106,7 @@ function defaultState() {
 var state = load();
 var newGameDialog = null; // { opponent, homeAway, date, halfMinutes, rosterIds, error }
 var endGameDialog = false;
+var twPicker = null; // { sec } - Sekunde beim Drücken von "Torwart gehalten", bis der Keeper gewählt ist
 
 function load() {
   try {
@@ -250,6 +252,22 @@ function recordOppEvent(code) {
   var g = state.currentGame;
   if (!g) return;
   g.events.push({ id: uid('e'), playerId: null, code: code, sec: g.sec });
+  save(); render();
+}
+function openPlayerPicker(code) {
+  // merkt sich die Sekunde beim Drücken, damit die Zeit stimmt, auch wenn
+  // die Auswahl des Spielers (z.B. Torwart) einen Moment dauert
+  var g = state.currentGame;
+  if (!g) return;
+  twPicker = { code: code, sec: g.sec };
+  render();
+}
+function closePlayerPicker() { twPicker = null; render(); }
+function pickPlayerForEvent(playerId) {
+  var g = state.currentGame;
+  if (!g || !twPicker) return;
+  g.events.push({ id: uid('e'), playerId: playerId, code: twPicker.code, sec: twPicker.sec });
+  twPicker = null;
   save(); render();
 }
 function undoLast() {
@@ -467,6 +485,10 @@ function renderLive() {
     var n = g.events.filter(function (e) { return e.playerId == null && e.code === code; }).length;
     return n ? String(n) : '–';
   }
+  function countForAnyPlayer(code) {
+    var n = g.events.filter(function (e) { return e.code === code; }).length;
+    return n ? String(n) : '–';
+  }
   function oppActionBtn(a) {
     return (
       '<button class="action-btn opp" data-act="record-opp" data-code="' + a.code + '">' +
@@ -475,12 +497,20 @@ function renderLive() {
       '</button>'
     );
   }
+  function pickerActionBtn(a) {
+    return (
+      '<button class="action-btn opp" data-act="open-player-picker" data-code="' + a.code + '">' +
+        '<span class="action-label">' + esc(a.label) + '</span>' +
+        '<span class="action-count">' + countForAnyPlayer(a.code) + '</span>' +
+      '</button>'
+    );
+  }
 
   var attGood = ATT.filter(function (a) { return a.pos; }).map(function (a) { return actionBtn(a, 'good'); }).join('');
   var attBad = ATT.filter(function (a) { return a.neg; }).map(function (a) { return actionBtn(a, 'bad'); }).join('');
   var defGood = DEF.filter(function (a) { return a.pos; }).map(function (a) { return actionBtn(a, 'good'); }).join('');
   var defBad = DEF.filter(function (a) { return a.neg && !a.opp; }).map(function (a) { return actionBtn(a, 'bad'); }).join('');
-  var defOpp = DEF.filter(function (a) { return a.opp; }).map(oppActionBtn).join('');
+  var defOpp = DEF.filter(function (a) { return a.opp; }).map(function (a) { return a.pickPos ? pickerActionBtn(a) : oppActionBtn(a); }).join('');
 
   var log = g.events.filter(function (e) { return !!ACTION_BY_CODE[e.code]; }).slice().reverse().slice(0, 8).map(function (e) {
     var a = ACTION_BY_CODE[e.code];
@@ -904,6 +934,35 @@ function renderEndGameDialog() {
   );
 }
 
+function renderPlayerPickerDialog() {
+  if (!twPicker || !state.currentGame) return '';
+  var g = state.currentGame;
+  var a = ACTION_BY_CODE[twPicker.code];
+  var pos = a ? a.pickPos : null;
+  var candidates = sortedRoster(state.roster.filter(function (p) {
+    return p.pos === pos && g.rosterIds.indexOf(p.id) > -1;
+  }));
+  var rows = candidates.map(function (p) {
+    return (
+      '<button class="picker-row" data-act="pick-player-for-event" data-id="' + p.id + '">' +
+        '<span class="picker-nr">' + (p.nr != null ? p.nr : '–') + '</span>' +
+        '<span>' + esc(p.name || '(ohne Namen)') + '</span>' +
+      '</button>'
+    );
+  }).join('');
+  return (
+    '<div class="dialog-backdrop" data-act="backdrop-player-picker">' +
+      '<div class="dialog">' +
+        '<div class="dialog-title">Torwart auswählen</div>' +
+        (candidates.length
+          ? '<div class="picker-list">' + rows + '</div>'
+          : '<div class="dialog-body">Kein Torwart (Position TW) im Kader für dieses Spiel hinterlegt. Trage die Position in der Kader-Verwaltung ein.</div>') +
+        '<div class="dialog-actions"><button class="btn btn-secondary" data-act="close-player-picker">Abbrechen</button></div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
 function render() {
   var body;
   if (state.view === 'live') body = renderLive();
@@ -913,7 +972,7 @@ function render() {
 
   document.getElementById('root').innerHTML =
     '<div class="page">' + renderHeader() + body + '</div>' +
-    renderNewGameDialog() + renderEndGameDialog();
+    renderNewGameDialog() + renderEndGameDialog() + renderPlayerPickerDialog();
 }
 
 /* ══════════════════════ event delegation ══════════════════════ */
@@ -927,6 +986,10 @@ document.addEventListener('click', function (e) {
     case 'select-player': selectPlayer(el.getAttribute('data-id')); break;
     case 'record': recordEvent(el.getAttribute('data-code')); break;
     case 'record-opp': recordOppEvent(el.getAttribute('data-code')); break;
+    case 'open-player-picker': openPlayerPicker(el.getAttribute('data-code')); break;
+    case 'close-player-picker': closePlayerPicker(); break;
+    case 'backdrop-player-picker': if (e.target === el) closePlayerPicker(); break;
+    case 'pick-player-for-event': pickPlayerForEvent(el.getAttribute('data-id')); break;
     case 'undo': undoLast(); break;
     case 'remove-log': removeEvent(el.getAttribute('data-id')); break;
     case 'toggle-clock': toggleClock(); break;
