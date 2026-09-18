@@ -2,7 +2,7 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
-var APP_VERSION = '2026-09-18c';
+var APP_VERSION = '2026-09-18d';
 var STORAGE_KEY = 'handball-tracker-v1';
 
 var ATT = [
@@ -217,6 +217,39 @@ function attackTimes(game) {
 function avgAttackTimeSec(games) {
   var all = [];
   games.forEach(function (g) { all = all.concat(attackTimes(g)); });
+  if (!all.length) return null;
+  var sum = all.reduce(function (a, b) { return a + b; }, 0);
+  return { avg: sum / all.length, count: all.length };
+}
+
+// Angriffszeit des Gegners: das Spiegelbild von attackTimes(). Jede unserer
+// eigenen Angriffsaktionen, die auch attackTimes() beendet (Tor, Tempo-Tor,
+// Fehlwurf, Fehlpass, Stürmerfoul, Schrittfehler - alles außer Assist/7m
+// erzwungen), beendet unseren Angriff und startet damit den des Gegners.
+// Jede startsAttack-Aktion (Gegentor, Gegner Fehlwurf, Torwart gehalten,
+// das Plus) beendet wiederum den Angriff des Gegners. Keine neuen Buttons
+// nötig - dieselben Ereignisse, nur aus der anderen Richtung gelesen.
+function oppAttackTimes(game) {
+  var times = [];
+  var pendingSince = null;
+  game.events.forEach(function (e) {
+    var a = ACTION_BY_CODE[e.code];
+    if (!a) return;
+    if (a.startsAttack) {
+      if (pendingSince != null) {
+        var dur = e.sec - pendingSince;
+        pendingSince = null;
+        if (dur >= 0) times.push(dur);
+      }
+      return;
+    }
+    if (ATT_CODES[a.code] && a.code !== 'assist' && a.code !== 'erzw7') pendingSince = e.sec;
+  });
+  return times;
+}
+function avgOppAttackTimeSec(games) {
+  var all = [];
+  games.forEach(function (g) { all = all.concat(oppAttackTimes(g)); });
   if (!all.length) return null;
   var sum = all.reduce(function (a, b) { return a + b; }, 0);
   return { avg: sum / all.length, count: all.length };
@@ -570,6 +603,7 @@ function renderEval() {
   });
 
   var gameAtk = avgAttackTimeSec([g]);
+  var gameOppAtk = avgOppAttackTimeSec([g]);
 
   var kpis = [
     { label: 'Wurfquote', value: (teamShots ? Math.round((scoreUs / teamShots) * 100) : 0) + '%', sub: scoreUs + ' Tore aus ' + teamShots + ' Würfen' },
@@ -578,7 +612,8 @@ function renderEval() {
     { label: 'Abwehrfehler', value: String(teamAbw), sub: 'Lücken, Stellung, Gegentore' },
     { label: 'Ballgewinne + Blocks', value: String(teamBall + teamBlock), sub: teamBall + ' Gewinne · ' + teamBlock + ' Blocks' },
     { label: 'Strafen', value: String(teamStraf), sub: 'Zeitstrafen' },
-    { label: 'Ø Angriffszeit', value: gameAtk ? fmtClock(Math.round(gameAtk.avg)) : '–', sub: gameAtk ? gameAtk.count + ' gemessene Angriffe' : 'Gegentor bis nächste Aktion' }
+    { label: 'Ø Angriffszeit', value: gameAtk ? fmtClock(Math.round(gameAtk.avg)) : '–', sub: gameAtk ? gameAtk.count + ' gemessene Angriffe' : 'Gegentor bis nächste Aktion' },
+    { label: 'Ø Angriffszeit Gegner', value: gameOppAtk ? fmtClock(Math.round(gameOppAtk.avg)) : '–', sub: gameOppAtk ? gameOppAtk.count + ' gemessene Angriffe' : 'Unser Fehler bis Ballverlust' }
   ];
   var kpiHtml = kpis.map(function (k) {
     return '<div class="blueprint kpi-card">' + corners() + '<div class="kpi-label">' + k.label + '</div><div class="kpi-value">' + k.value + '</div><div class="kpi-sub">' + k.sub + '</div></div>';
@@ -777,9 +812,13 @@ function renderSeason() {
   // season aggregation across archive + current game
   var games = state.archive.concat(g ? [g] : []);
   var seasonAtk = avgAttackTimeSec(games);
+  var seasonOppAtk = avgOppAttackTimeSec(games);
   var seasonAtkHtml = '<div class="blueprint kpi-card">' + corners() +
     '<div class="kpi-label">Ø Angriffszeit</div><div class="kpi-value">' + (seasonAtk ? fmtClock(Math.round(seasonAtk.avg)) : '–') + '</div>' +
-    '<div class="kpi-sub">' + (seasonAtk ? seasonAtk.count + ' gemessene Angriffe · Saison' : 'Gegentor bis nächste Aktion') + '</div></div>';
+    '<div class="kpi-sub">' + (seasonAtk ? seasonAtk.count + ' gemessene Angriffe · Saison' : 'Gegentor bis nächste Aktion') + '</div></div>' +
+    '<div class="blueprint kpi-card">' + corners() +
+    '<div class="kpi-label">Ø Angriffszeit Gegner</div><div class="kpi-value">' + (seasonOppAtk ? fmtClock(Math.round(seasonOppAtk.avg)) : '–') + '</div>' +
+    '<div class="kpi-sub">' + (seasonOppAtk ? seasonOppAtk.count + ' gemessene Angriffe · Saison' : 'Unser Fehler bis Ballverlust') + '</div></div>';
   var known = {};
   state.roster.forEach(function (p) { known[p.id] = true; });
   games.forEach(function (game) { (game.rosterIds || []).forEach(function (id) { known[id] = true; }); });
