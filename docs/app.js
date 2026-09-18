@@ -2,12 +2,12 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
-var APP_VERSION = '2026-09-18a';
+var APP_VERSION = '2026-09-18b';
 var STORAGE_KEY = 'handball-tracker-v1';
 
 var ATT = [
   { code: 'tor', label: 'Tor', pos: 1, shot: 1, goal: 1 },
-  { code: 'tempo', label: 'Tempo-Tor', pos: 1, shot: 1, goal: 1 },
+  { code: 'tempo', label: 'Tempo-Tor', pos: 1, shot: 1, goal: 1, excludeFromAttackTime: 1 },
   { code: 'assist', label: 'Assist', pos: 1 },
   { code: 'erzw7', label: '7m erzwungen', pos: 1 },
   { code: 'fehlwurf', label: 'Fehlwurf', shot: 1, neg: 1 },
@@ -193,7 +193,9 @@ function quote(s) { return s.wuerfe ? Math.round((s.tore / s.wuerfe) * 100) : 0;
 // oder das Plus am Spielstand) oder Gegner-Fehlwurf - bis zur nächsten
 // Angriffsaktion, die kein Assist und kein erzwungener 7m ist - beide zählen
 // als Randnotiz zu einer Aktion, nicht als deren Abschluss, also wird bei
-// ihnen weiter auf die eigentliche Aktion gewartet.
+// ihnen weiter auf die eigentliche Aktion gewartet. Tempo-Tore beenden die
+// Wartezeit zwar, gehen aber nicht in den Schnitt ein - sie sind naturgemäß
+// zu schnell, um eine normale Angriffszeit widerzuspiegeln.
 function attackTimes(game) {
   var times = [];
   var pendingSince = null;
@@ -205,6 +207,7 @@ function attackTimes(game) {
     if (a.code === 'assist' || a.code === 'erzw7') return; // noch nicht der Abschluss
     var dur = e.sec - pendingSince;
     pendingSince = null;
+    if (a.excludeFromAttackTime) return; // z.B. Tempo-Tor: zählt als Abschluss, aber nicht in den Schnitt
     if (dur >= 0) times.push(dur); // negative Werte = über eine Halbzeitgrenze hinweg, verwerfen
   });
   return times;
