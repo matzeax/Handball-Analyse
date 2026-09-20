@@ -278,6 +278,10 @@ h6 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
 .game-card.dark .game-card-score { color: var(--color-bg); }
 .game-card-delete { margin-left: auto; align-self: center; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; margin-right: -8px; border: 0; background: transparent; cursor: pointer; padding: 0; color: color-mix(in srgb, var(--color-text) 45%, transparent); }
 .game-card-delete:hover { color: #a4453a; background: color-mix(in srgb, #a4453a 10%, transparent); }
+.game-card.selectable { cursor: pointer; }
+.game-card.selectable:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.game-card.selectable.dark:hover { background: var(--color-accent-800); }
+.game-card.selectable.selected { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
 .new-game-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 96px; cursor: pointer; background: transparent; border-style: dashed; color: var(--color-text); width: 100%; }
 .new-game-card:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
 .new-game-plus { font: 600 26px/1 var(--font-heading); color: var(--color-accent); }

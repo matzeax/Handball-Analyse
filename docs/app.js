@@ -2,7 +2,7 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
-var APP_VERSION = '2026-09-18g';
+var APP_VERSION = '2026-09-20a';
 var STORAGE_KEY = 'handball-tracker-v1';
 
 var ATT = [
@@ -119,7 +119,8 @@ function defaultState() {
     sort: 'balance',
     seasonSort: 'tore',
     seasonDir: 'desc',
-    weights: Object.assign({}, WEIGHT_DEFAULTS)
+    weights: Object.assign({}, WEIGHT_DEFAULTS),
+    selectedGameId: null
   };
 }
 
@@ -428,6 +429,16 @@ function confirmEndGame() {
 
 function deleteArchiveGame(id) {
   state.archive = state.archive.filter(function (g) { return g.id !== id; });
+  if (state.selectedGameId === id) state.selectedGameId = null;
+  save(); render();
+}
+function findGameById(id) {
+  if (!id) return null;
+  if (state.currentGame && state.currentGame.id === id) return state.currentGame;
+  return state.archive.filter(function (g) { return g.id === id; })[0] || null;
+}
+function selectGame(id) {
+  state.selectedGameId = (state.selectedGameId === id) ? null : id;
   save(); render();
 }
 
@@ -645,6 +656,13 @@ function renderEval() {
   if (!g) {
     return '<div class="view">' + renderEmptyState('Es läuft aktuell kein Spiel. Sobald ein Spiel läuft, erscheint hier die Auswertung.', true) + '</div>';
   }
+  return '<div class="view">' + renderGameStats(g) + '</div>';
+}
+
+// KPIs, Spieler-Vergleich, Auffälligkeiten und Angriff-gegen-Abwehr für EIN
+// Spiel - das laufende (Auswertung) oder ein einzelnes archiviertes (Saison,
+// nach Klick auf eine Spielkarte).
+function renderGameStats(g) {
   var roster = state.roster.filter(function (p) { return g.rosterIds.indexOf(p.id) > -1; });
   var stats = computeStats(g);
   var wscores = weightedScoresForGame(g);
@@ -746,21 +764,19 @@ function renderEval() {
   }
 
   return (
-    '<div class="view">' +
-      '<div class="kpi-grid">' + kpiHtml + '</div>' +
-      '<section class="section">' +
-        '<div class="section-head"><h3>Spieler im Vergleich</h3><div class="sorter-group">' + sorters + '</div></div>' +
-        '<div class="table-wrap"><table class="table" style="min-width:900px"><thead>' +
-          '<tr><th style="border-bottom:0"></th><th colspan="6" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Angriff</th><th colspan="4" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Abwehr</th><th style="border-bottom:0"></th></tr>' +
-          '<tr><th>Spieler</th><th>Tore</th><th>Würfe</th><th>Quote</th><th>Assists</th><th>Fehlwürfe</th><th>Fehler ges.</th><th>Ballgew.</th><th>Blocks</th><th>Strafen</th><th>Fehler</th><th>Bilanz</th></tr>' +
-        '</thead><tbody>' + rows + '</tbody></table></div>' +
-        '<div class="table-footnote">Fehlwürfe sind in den Angriffsfehlern gesamt enthalten. Bilanz = Tore, Assists, erzwungene 7m, Ballgewinne und Blocks minus Angriffsfehler, Abwehrfehler und Strafen.</div>' +
-      '</section>' +
-      '<section class="section"><h3>Auffälligkeiten</h3><div class="highlight-grid">' + highlightsHtml + '</div></section>' +
-      '<section class="section"><h3>Angriff gegen Abwehr</h3><div class="blueprint split-card">' + corners() +
-        '<div class="split-list"><div class="split-header"><span>Spieler</span><span>Angriff · Bilanz</span><span>Abwehr · Bilanz</span></div>' + splitRows + '</div>' +
-      '</div></section>' +
-    '</div>'
+    '<div class="kpi-grid">' + kpiHtml + '</div>' +
+    '<section class="section">' +
+      '<div class="section-head"><h3>Spieler im Vergleich</h3><div class="sorter-group">' + sorters + '</div></div>' +
+      '<div class="table-wrap"><table class="table" style="min-width:900px"><thead>' +
+        '<tr><th style="border-bottom:0"></th><th colspan="6" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Angriff</th><th colspan="4" style="color:var(--color-accent-700);border-bottom:1px solid var(--color-divider)">Abwehr</th><th style="border-bottom:0"></th></tr>' +
+        '<tr><th>Spieler</th><th>Tore</th><th>Würfe</th><th>Quote</th><th>Assists</th><th>Fehlwürfe</th><th>Fehler ges.</th><th>Ballgew.</th><th>Blocks</th><th>Strafen</th><th>Fehler</th><th>Bilanz</th></tr>' +
+      '</thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="table-footnote">Fehlwürfe sind in den Angriffsfehlern gesamt enthalten. Bilanz = Tore, Assists, erzwungene 7m, Ballgewinne und Blocks minus Angriffsfehler, Abwehrfehler und Strafen.</div>' +
+    '</section>' +
+    '<section class="section"><h3>Auffälligkeiten</h3><div class="highlight-grid">' + highlightsHtml + '</div></section>' +
+    '<section class="section"><h3>Angriff gegen Abwehr</h3><div class="blueprint split-card">' + corners() +
+      '<div class="split-list"><div class="split-header"><span>Spieler</span><span>Angriff · Bilanz</span><span>Abwehr · Bilanz</span></div>' + splitRows + '</div>' +
+    '</div></section>'
   );
 }
 
@@ -841,7 +857,7 @@ function renderSeason() {
     var st = computeStats(g);
     Object.keys(st).forEach(function (id) { scoreUs += st[id].tore; });
     liveTile = (
-      '<div class="blueprint game-card dark">' + corners() +
+      '<div class="blueprint game-card dark selectable' + (state.selectedGameId === g.id ? ' selected' : '') + '" data-act="select-game" data-id="' + g.id + '">' + corners() +
         '<div class="game-card-head"><span>' + fmtDate(g.date) + '</span><span>' + esc(g.homeAway) + '</span></div>' +
         '<div class="game-card-opp">' + esc(g.opponent) + '</div>' +
         '<div class="game-card-result"><span class="game-card-score">' + scoreUs + ':' + g.them + '</span><span class="tag tag-outline">Laufend</span></div>' +
@@ -855,7 +871,7 @@ function renderSeason() {
     Object.keys(stats).forEach(function (id) { us += stats[id].tore; });
     var win = us > game.them, draw = us === game.them;
     return (
-      '<div class="blueprint game-card">' + corners() +
+      '<div class="blueprint game-card selectable' + (state.selectedGameId === game.id ? ' selected' : '') + '" data-act="select-game" data-id="' + game.id + '">' + corners() +
         '<div class="game-card-head"><span>' + fmtDate(game.date) + '</span><span>' + esc(game.homeAway) + '</span></div>' +
         '<div class="game-card-opp">' + esc(game.opponent) + '</div>' +
         '<div class="game-card-result"><span class="game-card-score">' + us + ':' + game.them + '</span><span class="tag ' + (win ? 'tag-accent' : 'tag-neutral') + '">' + (win ? 'Sieg' : draw ? 'Remis' : 'Nied.') + '</span>' +
@@ -932,16 +948,32 @@ function renderSeason() {
     return '<tr>' + SEASON_COLS.map(function (c) { return c.cell(r); }).join('') + '</tr>';
   }).join('');
 
-  return (
-    '<div class="view">' +
+  var selectedGame = findGameById(state.selectedGameId);
+  var lowerHtml;
+  if (selectedGame) {
+    var gameLabel = (g && selectedGame.id === g.id) ? 'Laufend' : fmtDate(selectedGame.date);
+    lowerHtml =
+      '<section class="section">' +
+        '<div class="section-head"><h3>Statistik · ' + esc(selectedGame.opponent) + ' (' + gameLabel + ')</h3>' +
+          '<button class="btn btn-secondary" data-act="select-game" data-id="' + selectedGame.id + '">× Alle Spiele</button>' +
+        '</div>' +
+      '</section>' +
+      renderGameStats(selectedGame);
+  } else {
+    lowerHtml =
       '<div class="kpi-grid">' + seasonAtkHtml + '</div>' +
-      '<section class="section"><h3>Spiele der Saison</h3><div class="game-grid">' + newTile + liveTile + archiveTiles + '</div></section>' +
       '<section class="section">' +
         '<div class="section-head"><h3>Saisonwerte pro Spieler</h3><span class="record-head-hint">Spaltenkopf antippen zum Sortieren</span></div>' +
         '<div class="table-wrap"><table class="table" style="min-width:980px"><thead><tr>' + seasonHeadHtml + '</tr></thead>' +
         '<tbody>' + (seasonRowsHtml || '') + '</tbody></table></div>' +
         '<div class="table-footnote">Fehlwürfe sind Abschlüsse ohne Tor und in den Angriffsfehlern gesamt enthalten; Ballverluste sind Fehler ohne Abschluss (Fehlpass, Stürmerfoul, Schrittfehler).</div>' +
-      '</section>' +
+      '</section>';
+  }
+
+  return (
+    '<div class="view">' +
+      '<section class="section"><h3>Spiele der Saison</h3><div class="game-grid">' + newTile + liveTile + archiveTiles + '</div></section>' +
+      lowerHtml +
     '</div>'
   );
 }
@@ -1129,6 +1161,7 @@ document.addEventListener('click', function (e) {
     case 'delete-game':
       if (confirm('Dieses Spiel endgültig aus dem Archiv löschen? Die Saisonwerte werden entsprechend angepasst.')) deleteArchiveGame(el.getAttribute('data-id'));
       break;
+    case 'select-game': selectGame(el.getAttribute('data-id')); break;
     case 'set-homeaway':
       if (newGameDialog) { newGameDialog.homeAway = el.getAttribute('data-value'); render(); }
       break;
