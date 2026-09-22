@@ -2,7 +2,7 @@
 
 /* ══════════════════════ constants ══════════════════════ */
 
-var APP_VERSION = '2026-09-20a';
+var APP_VERSION = '2026-09-22a';
 var STORAGE_KEY = 'handball-tracker-v1';
 
 var ATT = [
@@ -235,6 +235,7 @@ function sumWeightedScores(games) {
   });
   return total;
 }
+function isGoalie(pos) { return pos === 'TW'; }
 function attScore(ws) { return ws.att; }
 function defScore(ws) { return ws.def; }
 function balance(ws) { return ws.att + ws.def; }
@@ -441,6 +442,20 @@ function selectGame(id) {
   state.selectedGameId = (state.selectedGameId === id) ? null : id;
   save(); render();
 }
+function reassignEvent(gameId, eventId, playerId) {
+  var game = findGameById(gameId);
+  if (!game) return;
+  var ev = game.events.filter(function (e) { return e.id === eventId; })[0];
+  if (!ev || !playerId) return;
+  ev.playerId = playerId;
+  save(); render();
+}
+function removeEventFromGame(gameId, eventId) {
+  var game = findGameById(gameId);
+  if (!game) return;
+  game.events = game.events.filter(function (e) { return e.id !== eventId; });
+  save(); render();
+}
 
 function addRosterPlayer() {
   state.roster.push({ id: uid('p'), nr: null, name: '', pos: '', active: true });
@@ -557,7 +572,7 @@ function renderLive() {
       '<button class="roster-item' + (on ? ' active' : '') + '" data-act="select-player" data-id="' + p.id + '">' +
         '<span class="roster-nr">' + (p.nr != null ? p.nr : '–') + '</span>' +
         '<span class="roster-name-col"><span class="roster-name">' + esc(p.name || '(ohne Namen)') + '</span><span class="roster-pos">' + esc(p.pos || '–') + '</span></span>' +
-        '<span class="roster-tally">' + s.tore + '/' + signed(balance(ws)) + '</span>' +
+        '<span class="roster-tally">' + s.tore + '/' + (isGoalie(p.pos) ? '–' : signed(balance(ws))) + '</span>' +
       '</button>'
     );
   }).join('');
@@ -722,18 +737,20 @@ function renderGameStats(g) {
         '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + w.s.block + '</td>' +
         '<td style="font-variant-numeric:tabular-nums;opacity:.7">' + w.s.strafen + '</td>' +
         '<td style="font-variant-numeric:tabular-nums">' + w.s.abwFehler + '</td>' +
-        '<td><span class="tag ' + (b > 0 ? 'tag-accent' : 'tag-neutral') + '" style="font-variant-numeric:tabular-nums;font-weight:500">' + signed(b) + '</span></td>' +
+        '<td>' + (isGoalie(w.p.pos) ? '<span style="opacity:.4">–</span>' : '<span class="tag ' + (b > 0 ? 'tag-accent' : 'tag-neutral') + '" style="font-variant-numeric:tabular-nums;font-weight:500">' + signed(b) + '</span>') + '</td>' +
       '</tr>'
     );
   }).join('');
 
+  // Torhüter haben keine Bilanz - eigene Aktionen (Paraden) sind mit Feldspielern
+  // nicht vergleichbar, daher tauchen sie in diesem Split gar nicht erst auf.
   var maxSplit = 4;
-  wrapped.forEach(function (w) { maxSplit = Math.max(maxSplit, Math.abs(attScore(w.ws)), Math.abs(defScore(w.ws))); });
+  wrapped.forEach(function (w) { if (!isGoalie(w.p.pos)) maxSplit = Math.max(maxSplit, Math.abs(attScore(w.ws)), Math.abs(defScore(w.ws))); });
   function bar(v) {
     var w = (Math.abs(v) / maxSplit) * 50;
     return { left: (v >= 0 ? 50 : 50 - w) + '%', w: w + '%', color: v >= 0 ? 'var(--color-accent)' : 'var(--color-neutral-500)' };
   }
-  var splitRows = sorted.map(function (w) {
+  var splitRows = sorted.filter(function (w) { return !isGoalie(w.p.pos); }).map(function (w) {
     var a = bar(attScore(w.ws)), d = bar(defScore(w.ws));
     return (
       '<div class="split-row">' +
@@ -776,7 +793,48 @@ function renderGameStats(g) {
     '<section class="section"><h3>Auffälligkeiten</h3><div class="highlight-grid">' + highlightsHtml + '</div></section>' +
     '<section class="section"><h3>Angriff gegen Abwehr</h3><div class="blueprint split-card">' + corners() +
       '<div class="split-list"><div class="split-header"><span>Spieler</span><span>Angriff · Bilanz</span><span>Abwehr · Bilanz</span></div>' + splitRows + '</div>' +
-    '</div></section>'
+    '</div></section>' +
+    renderEventLogEditor(g)
+  );
+}
+
+// Vollständiges, bearbeitbares Protokoll eines Spiels - anders als das kompakte
+// Live-Protokoll in Erfassen (nur letzte 8, nur löschen) zeigt es alle Aktionen
+// und erlaubt, den zugeordneten Spieler nachträglich zu korrigieren (z.B. einen
+// falsch gebuchten Torschützen). Funktioniert für das laufende wie für ein
+// archiviertes Spiel.
+function renderEventLogEditor(game) {
+  var roster = sortedRoster(state.roster.filter(function (p) { return game.rosterIds.indexOf(p.id) > -1; }));
+  var rows = game.events.filter(function (e) { return !!ACTION_BY_CODE[e.code]; }).slice().reverse().map(function (e) {
+    var a = ACTION_BY_CODE[e.code];
+    var side = ATT_CODES[a.code] ? 'Angriff' : 'Abwehr';
+    var playerCell;
+    if (e.playerId == null) {
+      playerCell = '<span style="opacity:.5">—</span>';
+    } else {
+      var options = roster.map(function (p) {
+        return '<option value="' + p.id + '"' + (p.id === e.playerId ? ' selected' : '') + '>' +
+          (p.nr != null ? p.nr + ' · ' : '') + esc(p.name || '(ohne Namen)') + '</option>';
+      }).join('');
+      playerCell = '<select class="input" data-reassign-event="' + e.id + '" data-game="' + game.id + '">' + options + '</select>';
+    }
+    return (
+      '<tr>' +
+        '<td style="font-variant-numeric:tabular-nums;white-space:nowrap">' + fmtClock(e.sec) + '</td>' +
+        '<td style="white-space:nowrap;opacity:.7">' + side + '</td>' +
+        '<td style="min-width:170px">' + playerCell + '</td>' +
+        '<td>' + esc(a.label) + '</td>' +
+        '<td style="text-align:right"><button class="btn btn-icon btn-danger" data-act="delete-event-any" data-game="' + game.id + '" data-id="' + e.id + '" title="Aktion löschen" aria-label="Aktion löschen">' + trashIcon() + '</button></td>' +
+      '</tr>'
+    );
+  }).join('');
+
+  return (
+    '<section class="section">' +
+      '<div class="section-head"><h3>Protokoll bearbeiten</h3><span class="record-head-hint">Spieler korrigieren oder Aktion löschen</span></div>' +
+      '<div class="table-wrap"><table class="table" style="min-width:620px"><thead><tr><th>Zeit</th><th>Seite</th><th>Spieler</th><th>Aktion</th><th></th></tr></thead>' +
+      '<tbody>' + (rows || '<tr><td colspan="5" style="opacity:.6">Noch keine Aktionen erfasst.</td></tr>') + '</tbody></table></div>' +
+    '</section>'
   );
 }
 
@@ -830,6 +888,7 @@ var SEASON_COLS = (function () {
       key: 'avgBalance', label: 'Ø Bilanz', title: 'durchschnittliche Bilanz',
       cmp: function (a, b) { return a.avgBalance - b.avgBalance; },
       cell: function (r) {
+        if (isGoalie(r.pos)) return '<td><span style="opacity:.4">–</span></td>';
         var v = Math.round(r.avgBalance * 10) / 10;
         return '<td><span class="tag ' + (v > 0 ? 'tag-accent' : 'tag-neutral') + '" style="font-variant-numeric:tabular-nums;font-weight:500">' + signed(v) + '</span></td>';
       }
@@ -910,6 +969,7 @@ function renderSeason() {
     return {
       nr: p ? p.nr : null,
       name: p ? p.name : '(entfernt)',
+      pos: p ? p.pos : '',
       spiele: spiele,
       tore: t.tore,
       avgTore: spiele ? t.tore / spiele : 0,
@@ -1162,6 +1222,9 @@ document.addEventListener('click', function (e) {
       if (confirm('Dieses Spiel endgültig aus dem Archiv löschen? Die Saisonwerte werden entsprechend angepasst.')) deleteArchiveGame(el.getAttribute('data-id'));
       break;
     case 'select-game': selectGame(el.getAttribute('data-id')); break;
+    case 'delete-event-any':
+      if (confirm('Diese Aktion aus dem Protokoll entfernen?')) removeEventFromGame(el.getAttribute('data-game'), el.getAttribute('data-id'));
+      break;
     case 'set-homeaway':
       if (newGameDialog) { newGameDialog.homeAway = el.getAttribute('data-value'); render(); }
       break;
@@ -1201,6 +1264,8 @@ document.addEventListener('input', function (e) {
 
 document.addEventListener('change', function (e) {
   var t = e.target;
+  var reassignId = t.getAttribute('data-reassign-event');
+  if (reassignId) { reassignEvent(t.getAttribute('data-game'), reassignId, t.value); return; }
   var field = t.getAttribute('data-field');
   if (!field) return;
   var id = t.getAttribute('data-id');
